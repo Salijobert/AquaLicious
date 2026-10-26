@@ -6,9 +6,28 @@ export interface ServerNode {
   latencyMs?: number;
 }
 
+const isBrowserRemote = typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+const ngrokUrl = 'https://extrude-reoccur-roulette.ngrok-free.dev';
+
 const DEFAULT_SERVERS: ServerNode[] = [
-  { url: 'http://localhost:8088', label: 'Primary Node (8088)', isPrimary: true, status: 'checking' },
-  { url: 'http://localhost:8089', label: 'Failover Node (8089)', isPrimary: false, status: 'checking' }
+  {
+    url: (import.meta as any).env?.VITE_API_URL || (isBrowserRemote ? ngrokUrl : 'http://localhost:8088'),
+    label: isBrowserRemote ? 'ngrok Public Endpoint' : 'Local Node (8088)',
+    isPrimary: true,
+    status: 'checking'
+  },
+  {
+    url: ngrokUrl,
+    label: 'ngrok Tunnel (Public)',
+    isPrimary: false,
+    status: 'checking'
+  },
+  {
+    url: 'http://localhost:8088',
+    label: 'Local Node (8088)',
+    isPrimary: false,
+    status: 'checking'
+  }
 ];
 
 export const EXPECTED_CLUSTER_ID = 'aqualicious-cluster-primary';
@@ -103,6 +122,7 @@ class MultiServerResolver {
         const reqHeaders: Record<string, string> = {
           'Content-Type': 'application/json',
           'X-AquaLicious-Cluster-Id': EXPECTED_CLUSTER_ID,
+          'ngrok-skip-browser-warning': 'true',
           ...headers
         };
 
