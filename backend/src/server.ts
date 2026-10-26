@@ -100,8 +100,8 @@ export function createApp() {
 }
 
 const app = createApp();
-app.listen(config.port, '0.0.0.0', () => {
-  console.log(`AquaLicious Express Server running on http://0.0.0.0:${config.port}`);
+app.listen(config.port, () => {
+  console.log(`AquaLicious Express Server running on port ${config.port} (IPv4 + IPv6)`);
   console.log(`Cluster ID: ${config.clusterId}`);
   console.log(`Timezone: ${config.timezone}`);
 });
