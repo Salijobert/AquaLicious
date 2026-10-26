@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { useInventory, useAdjustStock } from '../api/client.js';
 import { useAuth } from '../auth/AuthContext.js';
-import { Boxes, Calculator, PlusCircle, History, AlertCircle } from 'lucide-react';
+import { Calculator, Plus, History, AlertTriangle } from 'lucide-react';
 import { RopCalculatorModal } from '../components/RopCalculatorModal.js';
 
 export const InventoryPage: React.FC = () => {
   const { role } = useAuth();
   const isAdmin = role === 'Administrator';
-  const { data: inventory, isLoading } = useInventory();
+  const { data: inventory } = useInventory();
   const { data: ledger } = useInventory(true);
   const adjustStockMutation = useAdjustStock();
 
@@ -17,6 +17,12 @@ export const InventoryPage: React.FC = () => {
   const [adjustQty, setAdjustQty] = useState('');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [currentCategory, setCurrentCategory] = useState<string>('All');
+
+  const categories = ['All', 'Slim', 'Round', 'Purified', 'Mineral'];
+  const filteredInventory = inventory?.filter((p: any) =>
+    currentCategory === 'All' ? true : p.category === currentCategory
+  );
 
   const handleAdjustStock = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,211 +46,294 @@ export const InventoryPage: React.FC = () => {
 
   return (
     <div className="page-content space-y-6">
-      <div id="page-error" className="text-error text-xs empty:hidden">
+      <div id="page-error" className="text-red-500 text-xs empty:hidden">
         {error || ''}
       </div>
 
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">Inventory Monitoring</h1>
-          <p className="text-xs text-slate-500 font-semibold">Stock Levels, Usage Analytics & Reorder Thresholds</p>
+          <p className="text-xs text-slate-500 font-semibold">Stock Levels, Usage Analytics & Dynamic ROP Thresholds</p>
         </div>
 
         <button
           data-action="rop"
           onClick={() => setIsRopOpen(true)}
-          className="btn btn-secondary btn-sm gap-2 text-primary font-bold shadow"
+          className="btn btn-primary btn-sm gap-2 font-bold shadow"
         >
           <Calculator className="w-4 h-4" /> ROP Calculator
         </button>
       </div>
 
-      {/* Stock Levels Table */}
-      <div className="card bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-        <h2 className="text-base font-bold text-slate-900 mb-4 flex items-center gap-2">
-          <Boxes className="w-5 h-5 text-primary" /> Active Stock Balances
-        </h2>
+      {/* Category Chips (matching inventory.html) */}
+      <div className="flex gap-2 flex-wrap" id="catChips">
+        {categories.map((c) => (
+          <button
+            key={c}
+            onClick={() => setCurrentCategory(c)}
+            className={`btn btn-sm ${
+              c === currentCategory ? 'btn-primary' : 'btn-outline'
+            }`}
+          >
+            {c}
+          </button>
+        ))}
+      </div>
 
+      {/* Stock Levels Table (matching inventory.html) */}
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">📦 Stock Levels & Capacity</span>
+          {isAdmin && (
+            <button
+              onClick={() => {
+                if (inventory && inventory.length > 0) {
+                  setSelectedProduct(inventory[0]);
+                  setAdjustType('RESTOCK');
+                }
+              }}
+              className="btn btn-primary btn-sm"
+            >
+              + Restock Product
+            </button>
+          )}
+        </div>
         <div className="overflow-x-auto">
-          <table className="table table-sm text-xs">
+          <table id="tableBody">
             <thead>
-              <tr className="bg-slate-50 text-slate-600">
+              <tr>
                 <th>Product</th>
                 <th>Category</th>
-                <th>Current Stock</th>
-                <th>7-Day Sold</th>
-                <th>Effective ROP</th>
+                <th>Stock</th>
+                <th>Stock Level</th>
                 <th>Status</th>
-                {isAdmin && <th>Action</th>}
+                {isAdmin && <th>Quick Action</th>}
               </tr>
             </thead>
             <tbody>
-              {inventory?.map((p: any) => (
-                <tr key={p.id} className="hover">
-                  <td className="font-bold text-slate-800">
-                    <div>{p.name}</div>
-                    <div className="text-[10px] text-slate-400 font-mono">{p.sku}</div>
+              {filteredInventory && filteredInventory.length > 0 ? (
+                filteredInventory.map((p: any) => {
+                  const maxRef = Math.max(p.effective_rop * 2, 50);
+                  const pct = Math.min(100, Math.round((p.stock / maxRef) * 100));
+                  const isCritical = p.status === 'Critical' || p.stock <= p.effective_rop;
+                  const isWarning = p.status === 'Warning';
+                  const barColor = isCritical ? 'var(--red)' : isWarning ? 'var(--orange)' : 'var(--green)';
+
+                  return (
+                    <tr key={p.id}>
+                      <td>
+                        <strong>{p.name}</strong>
+                        <div className="text-[10px] text-gray-400">{p.sku}</div>
+                      </td>
+                      <td>
+                        <span className="badge badge-info">{p.category}</span>
+                      </td>
+                      <td style={{ fontWeight: 700, color: isCritical ? 'var(--red)' : 'inherit' }}>
+                        {p.stock} units
+                      </td>
+                      <td>
+                        <div className="stock-bar-wrap mb-1">
+                          <div className="stock-bar" style={{ width: `${pct}%`, background: barColor }} />
+                        </div>
+                        <span className="text-[10px] text-gray-500">{pct}% capacity</span>
+                      </td>
+                      <td>
+                        <span
+                          className={`badge ${
+                            isCritical ? 'badge-danger' : isWarning ? 'badge-warning' : 'badge-success'
+                          }`}
+                        >
+                          {p.status || (isCritical ? 'Low Stock' : 'In Stock')}
+                        </span>
+                      </td>
+                      {isAdmin && (
+                        <td>
+                          <button
+                            onClick={() => {
+                              setSelectedProduct(p);
+                              setAdjustType('RESTOCK');
+                            }}
+                            className="btn btn-outline btn-xs"
+                          >
+                            Restock
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={6} className="text-center py-8 text-gray-400">
+                    No products found in this category.
                   </td>
-                  <td>{p.category}</td>
-                  <td className="font-black text-sm text-slate-900">{p.stock} units</td>
-                  <td className="text-slate-500">{p.seven_day_usage} units</td>
-                  <td className="font-semibold text-slate-700">{p.effective_rop} units</td>
-                  <td>
-                    <span
-                      className={`badge badge-sm font-bold ${
-                        p.status === 'Critical'
-                          ? 'badge-error text-white'
-                          : p.status === 'Warning'
-                          ? 'badge-warning text-slate-900'
-                          : 'badge-success text-white'
-                      }`}
-                    >
-                      {p.status}
-                    </span>
-                  </td>
-                  {isAdmin && (
-                    <td>
-                      <button
-                        onClick={() => setSelectedProduct(p)}
-                        className="btn btn-primary btn-xs gap-1 font-bold"
-                      >
-                        <PlusCircle className="w-3 h-3" /> Adjust
-                      </button>
-                    </td>
-                  )}
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Immutable Stock Movement Ledger */}
-      <div className="card bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-        <h2 className="text-base font-bold text-slate-900 mb-4 flex items-center gap-2">
-          <History className="w-5 h-5 text-secondary" /> Immutable Stock Movement Ledger
-        </h2>
-
+      {/* Movement Ledger Card */}
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">📜 Immutable Stock Movement Ledger</span>
+          <span className="text-xs text-gray-500">Historical Audit Records</span>
+        </div>
         <div className="overflow-x-auto max-h-[350px]">
-          <table className="table table-sm text-xs">
-            <thead className="sticky top-0 bg-slate-100 text-slate-700">
+          <table>
+            <thead className="sticky top-0 bg-gray-50">
               <tr>
-                <th>Time</th>
+                <th>Date & Time</th>
                 <th>Product</th>
-                <th>Type</th>
-                <th>Change</th>
-                <th>Balance (Prev → New)</th>
+                <th>Movement Type</th>
+                <th>Delta</th>
+                <th>Prev → New</th>
                 <th>Actor</th>
                 <th>Notes</th>
               </tr>
             </thead>
             <tbody>
-              {ledger?.map((m: any) => (
-                <tr key={m.id} className="hover">
-                  <td className="text-slate-400 text-[11px] whitespace-nowrap">
-                    {new Date(m.logged_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila' })}
+              {ledger && ledger.length > 0 ? (
+                ledger.map((entry: any) => (
+                  <tr key={entry.id}>
+                    <td className="text-gray-500">
+                      {new Date(entry.created_at).toLocaleString('en-PH')}
+                    </td>
+                    <td>
+                      <strong>{entry.product?.name || entry.product_id}</strong>
+                    </td>
+                    <td>
+                      <span
+                        className={`badge ${
+                          entry.type === 'SALE'
+                            ? 'badge-warning'
+                            : entry.type === 'RESTOCK'
+                            ? 'badge-success'
+                            : 'badge-info'
+                        }`}
+                      >
+                        {entry.type}
+                      </span>
+                    </td>
+                    <td className="font-bold">
+                      {entry.quantity_delta > 0 ? `+${entry.quantity_delta}` : entry.quantity_delta}
+                    </td>
+                    <td className="text-gray-600">
+                      {entry.balance_before} → {entry.balance_after}
+                    </td>
+                    <td>{entry.actor?.name || entry.actor_id || 'System'}</td>
+                    <td className="text-gray-500 truncate max-w-[200px]">{entry.notes || '—'}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={7} className="text-center py-8 text-gray-400">
+                    No movement records recorded yet.
                   </td>
-                  <td className="font-bold">{m.product_name}</td>
-                  <td>
-                    <span className="badge badge-outline badge-xs font-semibold">{m.movement_type}</span>
-                  </td>
-                  <td className={`font-bold ${m.change_qty > 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                    {m.change_qty > 0 ? `+${m.change_qty}` : m.change_qty}
-                  </td>
-                  <td className="font-mono text-slate-600">
-                    {m.previous_balance} → {m.new_balance}
-                  </td>
-                  <td className="text-slate-500">{m.user_name}</td>
-                  <td className="text-slate-400 truncate max-w-[200px]">{m.notes}</td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      <RopCalculatorModal isOpen={isRopOpen} onClose={() => setIsRopOpen(false)} />
-
-      {/* Adjustment Dialog */}
+      {/* RESTOCK / ADJUST MODAL */}
       {selectedProduct && (
-        <dialog open className="modal modal-open z-50">
-          <div className="modal-box bg-white text-slate-800 max-w-sm p-6 rounded-2xl shadow-2xl">
-            <h3 className="font-bold text-lg text-primary mb-2">Adjust {selectedProduct.name}</h3>
-            <p className="text-xs text-slate-500 mb-4">Current balance: {selectedProduct.stock} units</p>
-
+        <div className="modal-overlay active">
+          <div className="modal aq-modal">
+            <div className="modal-header">
+              <span className="modal-title">
+                {adjustType === 'RESTOCK' ? 'Restock Product' : 'Adjust Inventory'}
+              </span>
+              <button className="modal-close" onClick={() => setSelectedProduct(null)}>
+                ✕
+              </button>
+            </div>
             {error && (
-              <div className="alert alert-error text-xs p-2 mb-3">
-                <span>{error}</span>
+              <div className="p-2.5 mb-3 text-xs text-red-600 bg-red-50 rounded-lg border border-red-200">
+                {error}
               </div>
             )}
+            <form onSubmit={handleAdjustStock} className="space-y-4">
+              <div className="form-group">
+                <label className="form-label">Product *</label>
+                <select
+                  className="form-control"
+                  value={selectedProduct.id}
+                  onChange={(e) => {
+                    const found = inventory?.find((p: any) => p.id === Number(e.target.value));
+                    if (found) setSelectedProduct(found);
+                  }}
+                >
+                  {inventory?.map((p: any) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} (Current Stock: {p.stock} units)
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-            <form onSubmit={handleAdjustStock} className="space-y-3 text-xs">
-              <div>
-                <label className="label font-bold pb-1">Adjustment Type</label>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setAdjustType('RESTOCK')}
-                    className={`btn btn-sm flex-1 ${adjustType === 'RESTOCK' ? 'btn-primary' : 'btn-outline'}`}
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Action Type</label>
+                  <select
+                    className="form-control"
+                    value={adjustType}
+                    onChange={(e) => setAdjustType(e.target.value as any)}
                   >
-                    Restock (+)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAdjustType('ADJUSTMENT')}
-                    className={`btn btn-sm flex-1 ${adjustType === 'ADJUSTMENT' ? 'btn-primary' : 'btn-outline'}`}
-                  >
-                    Count Audit
-                  </button>
+                    <option value="RESTOCK">Restock (+)</option>
+                    <option value="ADJUSTMENT">Manual Adjustment</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Quantity *</label>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    className="form-control"
+                    placeholder="e.g. 50"
+                    value={adjustQty}
+                    onChange={(e) => setAdjustQty(e.target.value)}
+                  />
                 </div>
               </div>
 
-              <div>
-                <label className="label font-bold pb-1">
-                  {adjustType === 'RESTOCK' ? 'Quantity to Add' : 'New Exact Balance'}
-                </label>
-                <input
-                  type="number"
-                  required
-                  min="0"
-                  value={adjustQty}
-                  onChange={(e) => setAdjustQty(e.target.value)}
-                  className="input input-bordered input-sm w-full bg-slate-50 text-slate-800"
-                  placeholder="e.g. 50"
-                />
-              </div>
-
-              <div>
-                <label className="label font-bold pb-1">Notes</label>
+              <div className="form-group">
+                <label className="form-label">Reason / Notes</label>
                 <input
                   type="text"
+                  className="form-control"
+                  placeholder="e.g. Supplier delivery ref #543"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  className="input input-bordered input-sm w-full bg-slate-50 text-slate-800"
-                  placeholder="e.g. Delivery from bulk supplier"
                 />
               </div>
 
-              <div className="modal-action flex justify-between pt-4">
+              <div className="flex gap-2 justify-end mt-4">
                 <button
                   type="button"
+                  className="btn btn-outline"
                   onClick={() => setSelectedProduct(null)}
-                  className="btn btn-ghost btn-sm"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={adjustStockMutation.isPending}
-                  className="btn btn-primary btn-sm font-bold"
+                  className="btn btn-primary"
                 >
-                  {adjustStockMutation.isPending ? 'Saving...' : 'Confirm'}
+                  {adjustStockMutation.isPending ? 'Applying...' : 'Apply Stock'}
                 </button>
               </div>
             </form>
           </div>
-        </dialog>
+        </div>
       )}
+
+      {/* ROP CALCULATOR MODAL */}
+      <RopCalculatorModal isOpen={isRopOpen} onClose={() => setIsRopOpen(false)} />
     </div>
   );
 };

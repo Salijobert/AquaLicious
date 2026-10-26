@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { useOrders, usePatchOrder, useConfig } from '../api/client.js';
 import { useAuth } from '../auth/AuthContext.js';
-import { ClipboardList, QrCode, CheckCircle, XCircle, Clock, Truck, ShieldAlert } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, Truck, QrCode } from 'lucide-react';
 
 export const OrdersPage: React.FC = () => {
   const { role } = useAuth();
   const isAdmin = role === 'Administrator';
   const isStaff = role === 'Staff';
-  const { data: orders, isLoading, error } = useOrders();
+  const { data: orders, error } = useOrders();
   const { data: config } = useConfig();
   const patchOrderMutation = usePatchOrder();
 
@@ -86,167 +86,164 @@ export const OrdersPage: React.FC = () => {
 
   return (
     <div className="page-content space-y-6">
-      <div id="page-error" className="text-error text-xs empty:hidden">
+      <div id="page-error" className="text-red-500 text-xs empty:hidden">
         {error ? (error as any).message : ''}
       </div>
 
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">My Orders</h1>
-          <p className="text-xs text-slate-500 font-semibold">Track water deliveries, pickup reservations & payments</p>
+          <p className="text-xs text-slate-500 font-semibold">Track water deliveries, pickup reservations & online QR payments</p>
         </div>
       </div>
 
       {orders?.length === 0 ? (
-        <div className="card bg-white p-12 text-center rounded-2xl shadow-sm border border-slate-200">
-          <ClipboardList className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-          <h3 className="text-base font-bold text-slate-800">No Orders Yet</h3>
-          <p className="text-xs text-slate-500 mt-1">Place an order from the product catalog to get started.</p>
+        <div className="card text-center py-16 text-gray-400">
+          <p className="text-sm font-semibold">No active water orders found.</p>
         </div>
       ) : (
-        <div className="space-y-4">
-          {orders?.map((o: any) => (
+        <div className="grid gap-4">
+          {orders?.map((order: any) => (
             <div
-              key={o.id}
-              className="order card bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4"
+              key={order.id}
+              className="order card bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col md:flex-row justify-between gap-4"
             >
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b pb-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-sm text-primary">{o.order_number}</span>
-                    <span className="badge badge-sm badge-secondary badge-outline font-bold">
-                      {o.fulfillment}
-                    </span>
-                    <span className="badge badge-sm badge-ghost text-xs">
-                      {o.payment_method}
-                    </span>
+              <div className="space-y-2 flex-1">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="font-mono font-black text-base text-[#1565c0]">
+                    #{order.order_number}
+                  </span>
+                  <span
+                    className={`badge font-bold ${
+                      order.status === 'COMPLETED'
+                        ? 'badge-success'
+                        : order.status === 'CANCELLED'
+                        ? 'badge-danger'
+                        : 'badge-warning'
+                    }`}
+                  >
+                    {order.status}
+                  </span>
+                  <span className="badge badge-info flex items-center gap-1 font-semibold">
+                    <Truck className="w-3 h-3" /> {order.fulfillment}
+                  </span>
+                  <span className="text-xs text-gray-400">
+                    {new Date(order.created_at).toLocaleString('en-PH')}
+                  </span>
+                </div>
+
+                <div className="text-xs text-gray-700 space-y-1">
+                  <div>
+                    <strong>Customer:</strong> {order.user?.name || order.user?.username || 'Guest'}
                   </div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">
-                    Customer: <strong className="text-slate-700">{o.customer}</strong> · {new Date(o.created_at).toLocaleString('en-PH')}
+                  {order.address && (
+                    <div>
+                      <strong>Delivery Address:</strong> {order.address}
+                    </div>
+                  )}
+                  <div className="pt-1">
+                    <span className="font-semibold text-gray-900">Items: </span>
+                    {order.items?.map((item: any, idx: number) => (
+                      <span key={idx} className="mr-2 inline-block bg-gray-100 px-2 py-0.5 rounded text-gray-700">
+                        {item.product?.name || item.product_name} × {item.qty}
+                      </span>
+                    ))}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`badge font-bold px-3 py-2 text-xs ${
-                      o.status === 'COMPLETED'
-                        ? 'badge-success text-white'
-                        : o.status === 'CANCELLED'
-                        ? 'badge-error text-white'
-                        : o.status === 'OUT_FOR_DELIVERY'
-                        ? 'badge-info text-white'
-                        : 'badge-warning text-slate-900'
-                    }`}
-                  >
-                    {o.status}
-                  </span>
-                  <span
-                    className={`badge badge-sm font-semibold ${
-                      o.payment_status === 'VERIFIED'
-                        ? 'badge-success text-white'
-                        : o.payment_status === 'SUBMITTED'
-                        ? 'badge-info text-white'
-                        : o.payment_status === 'REFUND_REQUIRED'
-                        ? 'badge-error text-white'
-                        : 'badge-ghost text-slate-600'
-                    }`}
-                  >
-                    Pay: {o.payment_status}
-                  </span>
+                {/* Payment Information */}
+                <div className="mt-2 p-3 bg-gray-50 rounded-xl border border-gray-200 text-xs space-y-1">
+                  <div className="flex justify-between items-center">
+                    <span className="font-semibold text-gray-700">Method: {order.payment?.method}</span>
+                    <span
+                      className={`badge text-[10px] font-bold ${
+                        order.payment?.status === 'VERIFIED'
+                          ? 'badge-success'
+                          : order.payment?.status === 'REJECTED'
+                          ? 'badge-danger'
+                          : 'badge-warning'
+                      }`}
+                    >
+                      Payment: {order.payment?.status || 'PENDING'}
+                    </span>
+                  </div>
+                  {order.payment?.reference_number && (
+                    <div className="text-gray-600">
+                      <strong>Ref #:</strong> {order.payment.reference_number}
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Order Items */}
-              <div className="space-y-1 text-xs">
-                {o.items?.map((item: any, idx: number) => (
-                  <div key={idx} className="flex justify-between items-center text-slate-600">
-                    <span>
-                      {item.qty} × {item.product_name} ({item.sku})
-                    </span>
-                    <span className="font-semibold text-slate-900">₱{Number(item.subtotal).toFixed(2)}</span>
+              {/* Price & Action Area */}
+              <div className="flex flex-col justify-between items-end border-t md:border-t-0 md:border-l border-gray-200 pt-3 md:pt-0 md:pl-5 min-w-[200px]">
+                <div className="text-right w-full">
+                  <div className="text-xs text-gray-500">Order Amount</div>
+                  <div className="text-2xl font-black text-[#0b3d91]">
+                    ₱{Number(order.total).toFixed(2)}
                   </div>
-                ))}
-                <div className="flex justify-between font-black text-sm text-primary border-t pt-2 mt-2">
-                  <span>Total Amount</span>
-                  <span>₱{Number(o.total).toFixed(2)}</span>
-                </div>
-              </div>
-
-              {/* Action Toolbar */}
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t text-xs">
-                <div className="text-slate-500 text-[11px]">
-                  {o.address && <span>Delivery: {o.address}</span>}
-                  {o.reference_number && <span className="ml-2 font-mono">Ref: {o.reference_number}</span>}
                 </div>
 
-                <div className="flex items-center gap-2">
-                  {/* Customer Payment Claim */}
-                  {(o.payment_method === 'GCASH_QR' || o.payment_method === 'MAYA_QR') &&
-                    o.payment_status === 'PENDING' &&
-                    o.status !== 'CANCELLED' && (
-                      <button
-                        onClick={() => setClaimOrder(o)}
-                        className="btn btn-secondary btn-xs font-bold gap-1 text-primary shadow"
-                      >
-                        <QrCode className="w-3.5 h-3.5" /> Submit Payment Proof
-                      </button>
-                    )}
-
-                  {/* Admin Payment Verification */}
-                  {isAdmin && o.payment_status === 'SUBMITTED' && (
-                    <>
-                      <button
-                        onClick={() => verifyPayment(o.id)}
-                        className="btn btn-success btn-xs text-white font-bold gap-1"
-                      >
-                        <CheckCircle className="w-3.5 h-3.5" /> Verify Payment
-                      </button>
-                      <button
-                        onClick={() => rejectPayment(o.id)}
-                        className="btn btn-error btn-xs text-white font-bold gap-1"
-                      >
-                        <XCircle className="w-3.5 h-3.5" /> Reject
-                      </button>
-                    </>
-                  )}
-
-                  {/* Staff / Admin Status Advancement */}
-                  {(isAdmin || isStaff) && o.status === 'PENDING' && (
+                <div className="flex flex-col gap-2 w-full mt-3">
+                  {/* Customer Upload QR Proof Button */}
+                  {order.payment?.method !== 'CASH' && order.payment?.status === 'PENDING' && (
                     <button
-                      onClick={() => updateStatus(o.id, 'CONFIRMED')}
-                      className="btn btn-primary btn-xs font-bold"
+                      onClick={() => setClaimOrder(order)}
+                      className="btn btn-primary btn-sm w-full font-bold gap-1"
                     >
-                      Confirm Order
+                      <QrCode className="w-3.5 h-3.5" /> Submit Proof
                     </button>
                   )}
 
-                  {(isAdmin || isStaff) && o.status === 'CONFIRMED' && o.fulfillment === 'DELIVERY' && (
-                    <button
-                      onClick={() => updateStatus(o.id, 'OUT_FOR_DELIVERY')}
-                      className="btn btn-info btn-xs text-white font-bold gap-1"
-                    >
-                      <Truck className="w-3.5 h-3.5" /> Dispatch Delivery
-                    </button>
-                  )}
-
-                  {(isAdmin || isStaff) &&
-                    (o.status === 'CONFIRMED' || o.status === 'OUT_FOR_DELIVERY') && (
-                      <button
-                        onClick={() => updateStatus(o.id, 'COMPLETED', o.payment_method === 'CASH')}
-                        className="btn btn-success btn-xs text-white font-bold"
-                      >
-                        Mark Completed
-                      </button>
-                    )}
-
-                  {/* Cancel button for customer if pending */}
-                  {o.status === 'PENDING' && (
-                    <button
-                      onClick={() => updateStatus(o.id, 'CANCELLED')}
-                      className="btn btn-ghost btn-xs text-error"
-                    >
-                      Cancel Order
-                    </button>
+                  {/* Staff / Admin Order Status Transitions */}
+                  {(isAdmin || isStaff) && (
+                    <div className="flex flex-wrap gap-1.5 w-full">
+                      {order.status === 'PENDING' && (
+                        <button
+                          onClick={() => updateStatus(order.id, 'PREPARING')}
+                          className="btn btn-outline btn-xs flex-1"
+                        >
+                          Prepare
+                        </button>
+                      )}
+                      {order.status === 'PREPARING' && (
+                        <button
+                          onClick={() =>
+                            updateStatus(
+                              order.id,
+                              order.fulfillment === 'DELIVERY' ? 'OUT_FOR_DELIVERY' : 'READY_FOR_PICKUP'
+                            )
+                          }
+                          className="btn btn-outline btn-xs flex-1"
+                        >
+                          {order.fulfillment === 'DELIVERY' ? 'Dispatch' : 'Ready'}
+                        </button>
+                      )}
+                      {(order.status === 'OUT_FOR_DELIVERY' || order.status === 'READY_FOR_PICKUP') && (
+                        <button
+                          onClick={() => updateStatus(order.id, 'COMPLETED', true)}
+                          className="btn btn-primary btn-xs flex-1"
+                        >
+                          Complete
+                        </button>
+                      )}
+                      {order.payment?.status === 'CLAIMED' && (
+                        <div className="flex gap-1 w-full mt-1">
+                          <button
+                            onClick={() => verifyPayment(order.id)}
+                            className="btn btn-sm btn-primary flex-1 text-[11px]"
+                          >
+                            Verify Pay
+                          </button>
+                          <button
+                            onClick={() => rejectPayment(order.id)}
+                            className="btn btn-sm btn-danger flex-1 text-[11px]"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -255,74 +252,57 @@ export const OrdersPage: React.FC = () => {
         </div>
       )}
 
-      {/* Claim Dialog */}
+      {/* QR Proof Submission Modal */}
       {claimOrder && (
-        <dialog open className="modal modal-open z-50">
-          <div className="modal-box bg-white text-slate-800 max-w-md p-6 rounded-2xl shadow-2xl">
-            <h3 className="font-bold text-lg text-primary mb-2">Claim QR Payment</h3>
-            <p className="text-xs text-slate-500 mb-4">
-              Send exact payment of <strong className="text-primary font-bold">₱{Number(claimOrder.total).toFixed(2)}</strong> to station merchant QR, then enter reference.
-            </p>
-
-            {claimError && (
-              <div className="alert alert-error text-xs p-2 mb-3">
-                <span>{claimError}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleClaimPayment} className="space-y-3 text-xs">
-              <div>
-                <label className="label font-bold pb-1">Reference Number / Transaction ID</label>
+        <div className="modal-overlay active">
+          <div className="modal aq-modal" style={{ maxWidth: '440px' }}>
+            <div className="modal-header">
+              <span className="modal-title">Submit Payment Proof</span>
+              <button className="modal-close" onClick={() => setClaimOrder(null)}>
+                ✕
+              </button>
+            </div>
+            <form onSubmit={handleClaimPayment} className="space-y-4">
+              <div className="form-group">
+                <label className="form-label">Reference Number *</label>
                 <input
-                  type="text"
                   required
+                  className="form-control"
+                  placeholder="e.g. 10023491823"
                   value={referenceNumber}
                   onChange={(e) => setReferenceNumber(e.target.value)}
-                  className="input input-bordered input-sm w-full bg-slate-50 text-slate-800 font-mono"
-                  placeholder="e.g. 1002348912"
                 />
               </div>
 
-              <div>
-                <label className="label font-bold pb-1">Screenshot / Receipt Image</label>
+              <div className="form-group">
+                <label className="form-label">Screenshot Proof (Optional)</label>
                 <input
                   type="file"
-                  required
-                  accept="image/png, image/jpeg"
+                  accept="image/*"
                   onChange={handleFileChange}
-                  className="file-input file-input-bordered file-input-sm w-full bg-slate-50"
+                  className="form-control"
                 />
               </div>
 
-              {proofBase64 && (
-                <div className="mt-2 text-center">
-                  <img
-                    src={proofBase64}
-                    alt="Proof preview"
-                    className="max-h-40 mx-auto rounded-lg border shadow-sm"
-                  />
-                </div>
-              )}
-
-              <div className="modal-action flex justify-between pt-4">
+              <div className="flex gap-2 justify-end mt-4">
                 <button
                   type="button"
+                  className="btn btn-outline"
                   onClick={() => setClaimOrder(null)}
-                  className="btn btn-ghost btn-sm"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={patchOrderMutation.isPending || !proofBase64}
-                  className="btn btn-primary btn-sm font-bold"
+                  disabled={patchOrderMutation.isPending}
+                  className="btn btn-primary"
                 >
-                  {patchOrderMutation.isPending ? 'Submitting...' : 'Submit Claim'}
+                  {patchOrderMutation.isPending ? 'Submitting...' : 'Confirm Payment'}
                 </button>
               </div>
             </form>
           </div>
-        </dialog>
+        </div>
       )}
     </div>
   );

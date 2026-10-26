@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from './auth/AuthContext.js';
 import { Navbar } from './components/Navbar.js';
@@ -6,16 +6,23 @@ import { Sidebar } from './components/Sidebar.js';
 import { LandingPage } from './pages/LandingPage.js';
 import { LoginPage } from './pages/LoginPage.js';
 import { RegisterPage } from './pages/RegisterPage.js';
-import { DashboardPage } from './pages/DashboardPage.js';
-import { SalesPage } from './pages/SalesPage.js';
-import { InventoryPage } from './pages/InventoryPage.js';
+import { VerifyEmailPromptPage } from './pages/VerifyEmailPromptPage.js';
+import { VerifyEmailCompletePage } from './pages/VerifyEmailCompletePage.js';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage.js';
+import { ResetPasswordCompletePage } from './pages/ResetPasswordCompletePage.js';
 import { ProductsPage } from './pages/ProductsPage.js';
 import { OrdersPage } from './pages/OrdersPage.js';
-import { ReportsPage } from './pages/ReportsPage.js';
-import { UsersPage } from './pages/UsersPage.js';
-import { ServerSettingsPage } from './pages/ServerSettingsPage.js';
+import { RequireAuth, RequireRole, PageLoadingSpinner } from './components/RouteGuards.js';
 import { useCreateOrder } from './api/client.js';
 import { ShoppingCart, X, Plus, Minus, Droplet } from 'lucide-react';
+
+// Code-split admin and secondary pages with React.lazy
+const DashboardPage = lazy(() => import('./pages/DashboardPage.js').then((m) => ({ default: m.DashboardPage })));
+const SalesPage = lazy(() => import('./pages/SalesPage.js').then((m) => ({ default: m.SalesPage })));
+const InventoryPage = lazy(() => import('./pages/InventoryPage.js').then((m) => ({ default: m.InventoryPage })));
+const ReportsPage = lazy(() => import('./pages/ReportsPage.js').then((m) => ({ default: m.ReportsPage })));
+const UsersPage = lazy(() => import('./pages/UsersPage.js').then((m) => ({ default: m.UsersPage })));
+const ServerSettingsPage = lazy(() => import('./pages/ServerSettingsPage.js').then((m) => ({ default: m.ServerSettingsPage })));
 
 interface CartItem {
   id: number;
@@ -61,6 +68,46 @@ export const App: React.FC = () => {
     return () => clearTimeout(timer);
   }, []);
 
+  // Capacitor and Android hardware back button handling
+  useEffect(() => {
+    const handleBackButton = (e: Event) => {
+      if (isCartOpen) {
+        e.preventDefault();
+        setIsCartOpen(false);
+      } else if (isSidebarOpen) {
+        e.preventDefault();
+        setIsSidebarOpen(false);
+      }
+    };
+
+    document.addEventListener('backbutton', handleBackButton);
+
+    const capApp = (window as any).Capacitor?.Plugins?.App;
+    let capHandle: any = null;
+    if (capApp?.addListener) {
+      capApp.addListener('backButton', ({ canGoBack }: { canGoBack?: boolean }) => {
+        if (isCartOpen) {
+          setIsCartOpen(false);
+        } else if (isSidebarOpen) {
+          setIsSidebarOpen(false);
+        } else if (canGoBack) {
+          window.history.back();
+        } else {
+          capApp.exitApp?.();
+        }
+      }).then((h: any) => {
+        capHandle = h;
+      }).catch(() => {});
+    }
+
+    return () => {
+      document.removeEventListener('backbutton', handleBackButton);
+      if (capHandle?.remove) {
+        capHandle.remove();
+      }
+    };
+  }, [isCartOpen, isSidebarOpen]);
+
   const addToCart = (product: any) => {
     setCart((prev) => {
       const existing = prev.find((i) => i.id === product.id);
@@ -78,6 +125,7 @@ export const App: React.FC = () => {
         }
       ];
     });
+    setIsCartOpen(true);
   };
 
   const updateCartQty = (id: number, delta: number) => {
@@ -118,10 +166,18 @@ export const App: React.FC = () => {
     }
   };
 
-  const isAuthOnlyPage = location.pathname === '/login' || location.pathname === '/register';
+  const path = location.pathname.toLowerCase();
+  const isLandingPage = path === '/' || path === '/index.html';
+  const isAuthPage =
+    path === '/login' ||
+    path === '/register' ||
+    path.startsWith('/verify-email') ||
+    path.startsWith('/forgot-password') ||
+    path.startsWith('/reset-password-complete');
+  const showAdminLayout = !isAuthPage && user && user.role !== 'Customer';
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+    <div className="min-h-screen font-sans">
       {/* Mobile Splash Screen matching legacy selector */}
       {showSplash && (
         <div id="splash" className="fixed inset-0 z-[1000] bg-[#162e43] text-white flex flex-col items-center justify-center gap-4">
@@ -132,21 +188,26 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* Mobile Top Header (always available on mobile viewports unless auth page) */}
-      {!isAuthOnlyPage && (
-        <div className="mobile-top lg:hidden flex items-center justify-between px-4 py-2 bg-white border-b sticky top-0 z-30">
-          <button onClick={() => setIsSidebarOpen(true)} className="btn btn-ghost btn-sm p-1">
-            <Droplet className="w-6 h-6 text-secondary fill-secondary" />
+      {/* Mobile Top Header (available on mobile viewports for cart toggle) */}
+      {!isAuthPage && (
+        <div className="mobile-top lg:hidden flex items-center justify-between px-4 py-2.5 bg-white border-b border-gray-200 sticky top-0 z-30 shadow-xs">
+          <button
+            onClick={() => setIsSidebarOpen(true)}
+            className="p-1 rounded-md text-gray-700 hover:bg-gray-100"
+            aria-label="Toggle navigation menu"
+          >
+            <Droplet className="w-6 h-6 text-[#1565c0] fill-[#1565c0]" />
           </button>
-          <span className="font-black text-primary text-sm tracking-wide">AQUALICIOUS</span>
+          <span className="font-serif font-bold text-[#0b3d91] text-base tracking-tight">AquaLicious</span>
           <button
             data-id="cart"
             onClick={() => setIsCartOpen(true)}
-            className="btn btn-ghost btn-sm relative p-1"
+            className="p-1 relative text-gray-700 hover:bg-gray-100 rounded-md"
+            aria-label="Customer Cart"
           >
-            <ShoppingCart className="w-5 h-5 text-slate-700" />
+            <ShoppingCart className="w-5 h-5 text-gray-700" />
             {cart.length > 0 && (
-              <span className="badge badge-secondary badge-xs absolute -top-1 -right-1 font-bold">
+              <span className="min-w-[16px] h-4 px-1 rounded-full bg-[#1565c0] text-white text-[10px] font-bold absolute -top-1 -right-1 flex items-center justify-center">
                 {cart.length}
               </span>
             )}
@@ -154,77 +215,87 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {!isAuthOnlyPage && (
-        <div className="hidden lg:block">
-          <Navbar
-            cartCount={cart.length}
-            onOpenCart={() => setIsCartOpen(true)}
-            onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-          />
-        </div>
-      )}
-
-      <div className="flex-1 flex">
-        {!isAuthOnlyPage && user && (
+      <div className={!isAuthPage && !isLandingPage ? 'layout' : 'min-h-screen'}>
+        {!isAuthPage && !isLandingPage && user && user.role !== 'Customer' && (
           <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
         )}
+        <div className={!isAuthPage && !isLandingPage ? `main ${(!user || user.role === 'Customer') ? '!ml-0' : ''}` : 'min-h-screen'}>
+          {!isAuthPage && !isLandingPage && user && user.role !== 'Customer' && (
+            <Navbar
+              cartCount={cart.reduce((s, i) => s + i.qty, 0)}
+              onOpenCart={() => setIsCartOpen(true)}
+              onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+            />
+          )}
+          <Suspense fallback={<PageLoadingSpinner />}>
+            <Routes>
+              {/* Public customer/landing routes */}
+              <Route path="/" element={<RootPage onAddToCart={addToCart} />} />
+              <Route path="/index.html" element={<RootPage onAddToCart={addToCart} />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/register" element={<RegisterPage />} />
+              <Route path="/verify-email" element={<VerifyEmailPromptPage />} />
+              <Route path="/verify-email.html" element={<VerifyEmailPromptPage />} />
+              <Route path="/verify-email-complete" element={<VerifyEmailCompletePage />} />
+              <Route path="/verify-email-complete.html" element={<VerifyEmailCompletePage />} />
+              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/forgot-password.html" element={<ForgotPasswordPage />} />
+              <Route path="/reset-password-complete" element={<ResetPasswordCompletePage />} />
+              <Route path="/reset-password-complete.html" element={<ResetPasswordCompletePage />} />
 
-        <main className={`flex-1 p-4 sm:p-6 lg:p-8 ${!isAuthOnlyPage && user ? 'lg:ml-64' : ''}`}>
-          <Routes>
-            <Route path="/" element={<RootPage onAddToCart={addToCart} />} />
-            <Route path="/index.html" element={<RootPage onAddToCart={addToCart} />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
+              {/* Products: Publicly accessible catalog; Admin sees management controls */}
+              <Route path="/products" element={<ProductsPage onAddToCart={addToCart} />} />
+              <Route path="/products.html" element={<ProductsPage onAddToCart={addToCart} />} />
+              <Route path="/frontend/pages/products.html" element={<ProductsPage onAddToCart={addToCart} />} />
 
-            {/* Dashboard routes */}
-            <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/dashboard.html" element={<DashboardPage />} />
-            <Route path="/frontend/pages/dashboard.html" element={<DashboardPage />} />
+              {/* Orders: Requires signed-in account (Customer, Staff, or Admin) */}
+              <Route path="/orders" element={<RequireAuth><OrdersPage /></RequireAuth>} />
+              <Route path="/orders.html" element={<RequireAuth><OrdersPage /></RequireAuth>} />
+              <Route path="/frontend/pages/orders.html" element={<RequireAuth><OrdersPage /></RequireAuth>} />
 
-            {/* Sales routes */}
-            <Route path="/sales" element={<SalesPage />} />
-            <Route path="/sales.html" element={<SalesPage />} />
-            <Route path="/frontend/pages/sales.html" element={<SalesPage />} />
+              {/* Dashboard: Restricted to Administrator and Staff */}
+              <Route path="/dashboard" element={<RequireRole allowedRoles={['Administrator', 'Staff']}><DashboardPage /></RequireRole>} />
+              <Route path="/dashboard.html" element={<RequireRole allowedRoles={['Administrator', 'Staff']}><DashboardPage /></RequireRole>} />
+              <Route path="/frontend/pages/dashboard.html" element={<RequireRole allowedRoles={['Administrator', 'Staff']}><DashboardPage /></RequireRole>} />
 
-            {/* Inventory routes */}
-            <Route path="/inventory" element={<InventoryPage />} />
-            <Route path="/inventory.html" element={<InventoryPage />} />
-            <Route path="/frontend/pages/inventory.html" element={<InventoryPage />} />
+              {/* Sales (POS): Restricted to Administrator and Staff */}
+              <Route path="/sales" element={<RequireRole allowedRoles={['Administrator', 'Staff']}><SalesPage /></RequireRole>} />
+              <Route path="/sales.html" element={<RequireRole allowedRoles={['Administrator', 'Staff']}><SalesPage /></RequireRole>} />
+              <Route path="/frontend/pages/sales.html" element={<RequireRole allowedRoles={['Administrator', 'Staff']}><SalesPage /></RequireRole>} />
 
-            {/* Products routes */}
-            <Route path="/products" element={<ProductsPage onAddToCart={addToCart} />} />
-            <Route path="/products.html" element={<ProductsPage onAddToCart={addToCart} />} />
-            <Route path="/frontend/pages/products.html" element={<ProductsPage onAddToCart={addToCart} />} />
+              {/* Inventory: Restricted to Administrator and Staff */}
+              <Route path="/inventory" element={<RequireRole allowedRoles={['Administrator', 'Staff']}><InventoryPage /></RequireRole>} />
+              <Route path="/inventory.html" element={<RequireRole allowedRoles={['Administrator', 'Staff']}><InventoryPage /></RequireRole>} />
+              <Route path="/frontend/pages/inventory.html" element={<RequireRole allowedRoles={['Administrator', 'Staff']}><InventoryPage /></RequireRole>} />
 
-            {/* Orders routes */}
-            <Route path="/orders" element={<OrdersPage />} />
-            <Route path="/orders.html" element={<OrdersPage />} />
-            <Route path="/frontend/pages/orders.html" element={<OrdersPage />} />
+              {/* Reports & Analytics: Restricted to Administrator and Staff */}
+              <Route path="/reports" element={<RequireRole allowedRoles={['Administrator', 'Staff']}><ReportsPage /></RequireRole>} />
+              <Route path="/reports.html" element={<RequireRole allowedRoles={['Administrator', 'Staff']}><ReportsPage /></RequireRole>} />
+              <Route path="/frontend/pages/reports.html" element={<RequireRole allowedRoles={['Administrator', 'Staff']}><ReportsPage /></RequireRole>} />
 
-            {/* Reports routes */}
-            <Route path="/reports" element={<ReportsPage />} />
-            <Route path="/reports.html" element={<ReportsPage />} />
-            <Route path="/frontend/pages/reports.html" element={<ReportsPage />} />
+              {/* User Management: Restricted to Administrator Only */}
+              <Route path="/users" element={<RequireRole allowedRoles={['Administrator']} fallbackPath="/dashboard.html"><UsersPage /></RequireRole>} />
+              <Route path="/users.html" element={<RequireRole allowedRoles={['Administrator']} fallbackPath="/dashboard.html"><UsersPage /></RequireRole>} />
+              <Route path="/frontend/pages/users.html" element={<RequireRole allowedRoles={['Administrator']} fallbackPath="/dashboard.html"><UsersPage /></RequireRole>} />
 
-            {/* Users routes */}
-            <Route path="/users" element={<UsersPage />} />
-            <Route path="/users.html" element={<UsersPage />} />
-            <Route path="/frontend/pages/users.html" element={<UsersPage />} />
+              {/* Cluster and Server Settings */}
+              <Route path="/settings" element={<ServerSettingsPage />} />
 
-            {/* Settings route */}
-            <Route path="/settings" element={<ServerSettingsPage />} />
-
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </main>
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
+        </div>
       </div>
 
       {/* Cart Drawer for Mobile and Web Customers */}
       {isCartOpen && (
         <div className="fixed inset-0 z-50 overflow-hidden flex justify-end">
-          <div className="fixed inset-0 bg-black/40" onClick={() => setIsCartOpen(false)} />
-          <div className="relative w-full max-w-sm bg-white shadow-2xl flex flex-col h-full z-10 p-6">
-            <div className="flex justify-between items-center border-b pb-3 mb-4">
+          <div
+            className="fixed inset-0 bg-black/40"
+            onClick={() => setIsCartOpen(false)}
+          />
+          <div className="relative w-full sm:max-w-sm bg-white shadow-2xl flex flex-col h-full z-10 p-6">
+            <div className="flex justify-between items-center border-b pb-3 mb-4 shrink-0">
               <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
                 <ShoppingCart className="w-5 h-5 text-secondary" /> Customer Cart
               </h2>
@@ -238,20 +309,26 @@ export const App: React.FC = () => {
                 Your cart is empty. Add water products to order.
               </div>
             ) : (
-              <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+              <div className="flex-1 overflow-y-auto space-y-3 mb-4 pr-1">
                 {cart.map((item) => (
-                  <div key={item.id} className="cart-line p-3 bg-slate-50 rounded-xl border flex justify-between items-center text-xs">
+                  <div key={item.id} className="flex justify-between items-center p-2.5 bg-slate-50 rounded-xl border text-xs">
                     <div>
-                      <div className="font-bold text-slate-900">{item.name}</div>
-                      <div className="text-slate-500">₱{item.price.toFixed(2)} each</div>
+                      <div className="font-bold text-slate-800">{item.name}</div>
+                      <div className="text-slate-500 font-medium">₱{item.price.toFixed(2)} each</div>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="flex items-center border rounded-lg bg-white">
-                        <button onClick={() => updateCartQty(item.id, -1)} className="btn btn-ghost btn-xs px-2">
+                        <button
+                          onClick={() => updateCartQty(item.id, -1)}
+                          className="btn btn-ghost btn-xs px-2"
+                        >
                           <Minus className="w-3 h-3" />
                         </button>
                         <span className="px-2 font-bold">{item.qty}</span>
-                        <button onClick={() => updateCartQty(item.id, 1)} className="btn btn-ghost btn-xs px-2">
+                        <button
+                          onClick={() => updateCartQty(item.id, 1)}
+                          className="btn btn-ghost btn-xs px-2"
+                        >
                           <Plus className="w-3 h-3" />
                         </button>
                       </div>
@@ -261,15 +338,15 @@ export const App: React.FC = () => {
               </div>
             )}
 
-            <div className="border-t pt-4 space-y-3">
-              <div className="flex justify-between items-center font-bold text-base">
-                <span>Subtotal:</span>
-                <span className="text-primary">₱{cartTotal.toFixed(2)}</span>
-              </div>
+            {cart.length > 0 && (
+              <form id="checkout-form" onSubmit={handleMobileCheckout} className="border-t pt-4 space-y-3 shrink-0">
+                <div className="flex justify-between items-center text-sm font-bold">
+                  <span>Subtotal:</span>
+                  <span className="text-primary text-base">₱{cartTotal.toFixed(2)}</span>
+                </div>
 
-              <form id="checkout-form" onSubmit={handleMobileCheckout} className="space-y-3 text-xs">
-                <div className="grid grid-cols-2 gap-2">
-                  <label className={`cursor-pointer rounded-lg border text-center py-2 font-bold text-xs transition-colors ${fulfillment === 'PICKUP' ? 'bg-primary text-white border-primary' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`}>
+                <div className="flex gap-2">
+                  <label className="flex-1 btn btn-xs btn-outline font-bold cursor-pointer">
                     <input
                       type="radio"
                       name="fulfillment"
@@ -280,7 +357,7 @@ export const App: React.FC = () => {
                     />
                     Pickup
                   </label>
-                  <label className={`cursor-pointer rounded-lg border text-center py-2 font-bold text-xs transition-colors ${fulfillment === 'DELIVERY' ? 'bg-primary text-white border-primary' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`}>
+                  <label className="flex-1 btn btn-xs btn-outline font-bold cursor-pointer">
                     <input
                       type="radio"
                       name="fulfillment"
@@ -326,7 +403,7 @@ export const App: React.FC = () => {
                     : 'Sign In to Order'}
                 </button>
               </form>
-            </div>
+            )}
           </div>
         </div>
       )}

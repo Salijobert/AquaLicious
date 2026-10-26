@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { useUsers, useCreateUser, useUpdateUser } from '../api/client.js';
-import { Users, UserPlus, Shield, UserCheck, UserX } from 'lucide-react';
+import { UserPlus, Shield, UserCheck, UserX } from 'lucide-react';
 
 export const UsersPage: React.FC = () => {
-  const { data: users, isLoading, error } = useUsers();
+  const { data: users, error } = useUsers();
   const createUserMutation = useCreateUser();
   const updateUserMutation = useUpdateUser();
 
@@ -40,14 +40,14 @@ export const UsersPage: React.FC = () => {
 
   return (
     <div className="page-content space-y-6">
-      <div id="page-error" className="text-error text-xs empty:hidden">
+      <div id="page-error" className="text-red-500 text-xs empty:hidden">
         {error ? (error as any).message : ''}
       </div>
 
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">User Management</h1>
-          <p className="text-xs text-slate-500 font-semibold">Administrator & Staff Role Provisioning</p>
+          <p className="text-xs text-slate-500 font-semibold">Administrator & Cashier Staff Role Provisioning</p>
         </div>
 
         <button
@@ -58,12 +58,17 @@ export const UsersPage: React.FC = () => {
         </button>
       </div>
 
-      <div className="card bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+      {/* USERS TABLE */}
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">👥 Station Staff Accounts</span>
+          <span className="text-xs text-gray-500">{users?.length || 0} user accounts</span>
+        </div>
         <div className="overflow-x-auto">
-          <table className="table table-sm text-xs">
+          <table>
             <thead>
-              <tr className="bg-slate-50 text-slate-600">
-                <th>Name</th>
+              <tr>
+                <th>User / Name</th>
                 <th>Username</th>
                 <th>Role</th>
                 <th>Status</th>
@@ -73,17 +78,16 @@ export const UsersPage: React.FC = () => {
             </thead>
             <tbody>
               {users?.map((u: any) => (
-                <tr key={u.id} className="hover">
-                  <td className="font-bold text-slate-800">{u.name}</td>
-                  <td className="font-mono text-slate-500">{u.username}</td>
+                <tr key={u.id}>
+                  <td>
+                    <div className="font-bold text-gray-900">{u.name}</div>
+                    <div className="text-[10px] text-gray-400">ID #{u.id}</div>
+                  </td>
+                  <td className="font-mono text-gray-700">@{u.username}</td>
                   <td>
                     <span
-                      className={`badge badge-sm font-bold ${
-                        u.role === 'Administrator'
-                          ? 'badge-primary text-white'
-                          : u.role === 'Staff'
-                          ? 'badge-secondary text-primary'
-                          : 'badge-ghost'
+                      className={`badge ${
+                        u.role === 'Administrator' ? 'badge-info' : 'badge-warning'
                       }`}
                     >
                       {u.role}
@@ -91,22 +95,24 @@ export const UsersPage: React.FC = () => {
                   </td>
                   <td>
                     <span
-                      className={`badge badge-xs font-semibold ${
-                        u.active ? 'badge-success text-white' : 'badge-error text-white'
+                      className={`badge ${
+                        u.active ? 'badge-success' : 'badge-danger'
                       }`}
                     >
-                      {u.active ? 'Active' : 'Deactivated'}
+                      {u.active ? 'Active' : 'Disabled'}
                     </span>
                   </td>
-                  <td className="text-slate-400">
-                    {new Date(u.created_at).toLocaleDateString('en-PH')}
+                  <td className="text-gray-500">
+                    {new Date(u.created_at || Date.now()).toLocaleDateString('en-PH')}
                   </td>
                   <td>
                     <button
                       onClick={() => toggleActive(u)}
-                      className={`btn btn-xs ${u.active ? 'btn-ghost text-error' : 'btn-ghost text-success'}`}
+                      className={`btn btn-xs ${
+                        u.active ? 'btn-danger' : 'btn-primary'
+                      }`}
                     >
-                      {u.active ? 'Deactivate' : 'Activate'}
+                      {u.active ? 'Disable' : 'Enable'}
                     </button>
                   </td>
                 </tr>
@@ -116,76 +122,75 @@ export const UsersPage: React.FC = () => {
         </div>
       </div>
 
+      {/* PROVISION USER MODAL */}
       {isCreateOpen && (
-        <dialog open className="modal modal-open z-50">
-          <div className="modal-box bg-white text-slate-800 max-w-sm p-6 rounded-2xl shadow-2xl">
-            <h3 className="font-bold text-lg text-primary mb-2">Provision Employee</h3>
-            <p className="text-xs text-slate-500 mb-4">
-              Create an operational Staff or Administrator account.
-            </p>
-
+        <div className="modal-overlay active">
+          <div className="modal aq-modal" style={{ maxWidth: '440px' }}>
+            <div className="modal-header">
+              <span className="modal-title">Provision Staff Member</span>
+              <button className="modal-close" onClick={() => setIsCreateOpen(false)}>
+                ✕
+              </button>
+            </div>
             {modalError && (
-              <div className="alert alert-error text-xs p-2 mb-3">
-                <span>{modalError}</span>
+              <div className="p-2.5 mb-3 bg-red-50 text-red-600 rounded-lg text-xs border border-red-200">
+                {modalError}
               </div>
             )}
-
-            <form onSubmit={handleCreate} className="space-y-3 text-xs">
-              <div>
-                <label className="label font-bold pb-1">Full Name</label>
+            <form onSubmit={handleCreate} className="space-y-3">
+              <div className="form-group">
+                <label className="form-label">Full Name *</label>
                 <input
-                  type="text"
                   required
+                  className="form-control"
+                  placeholder="e.g. Maria Santos"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="input input-bordered input-sm w-full bg-slate-50 text-slate-800"
-                  placeholder="e.g. Maria Santos"
                 />
               </div>
 
-              <div>
-                <label className="label font-bold pb-1">Username</label>
+              <div className="form-group">
+                <label className="form-label">Username *</label>
                 <input
-                  type="text"
                   required
+                  className="form-control"
+                  placeholder="e.g. maria_cashier"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="input input-bordered input-sm w-full bg-slate-50 text-slate-800"
-                  placeholder="e.g. maria_cashier"
                 />
               </div>
 
-              <div>
-                <label className="label font-bold pb-1">Role</label>
+              <div className="form-group">
+                <label className="form-label">Role *</label>
                 <select
+                  className="form-control"
                   value={role}
                   onChange={(e) => setRole(e.target.value)}
-                  className="select select-bordered select-sm w-full bg-slate-50 text-slate-800"
                 >
-                  <option value="Staff">Staff (POS & Inventory Checks)</option>
-                  <option value="Administrator">Administrator (Full Access)</option>
+                  <option value="Staff">Staff (Cashier / Operations)</option>
+                  <option value="Administrator">Administrator (Owner / Manager)</option>
                 </select>
               </div>
 
-              <div className="modal-action flex justify-between pt-4">
+              <div className="flex gap-2 justify-end mt-4 pt-2 border-t border-gray-100">
                 <button
                   type="button"
+                  className="btn btn-outline"
                   onClick={() => setIsCreateOpen(false)}
-                  className="btn btn-ghost btn-sm"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={createUserMutation.isPending}
-                  className="btn btn-primary btn-sm font-bold"
+                  className="btn btn-primary"
                 >
-                  {createUserMutation.isPending ? 'Provisioning...' : 'Create Account'}
+                  {createUserMutation.isPending ? 'Provisioning...' : 'Save Employee'}
                 </button>
               </div>
             </form>
           </div>
-        </dialog>
+        </div>
       )}
     </div>
   );
