@@ -1,13 +1,69 @@
-# AquaLicious implementation decisions
+# AquaLicious Architecture & System Design (v2.0)
 
-The supplied request takes precedence over contradictory thesis passages. Airline, classroom and flight-booking artifacts are excluded. Public registration creates Customers only. Administrators are provisioned by CLI; subsequent employee accounts require an Administrator. All clients share one PHP API and MySQL InnoDB database.
+## Overview & Technology Stack
 
-Inventory is sellable SKU quantity, including refill capacity in the labeled unit. A 5-Gallon SKU is not a 5L SKU. Container-with-water is a separate SKU; there is no implicit bill-of-materials deduction. Container deposits are recorded as product sales; refundable deposit accounting requires a separate liability module.
+AquaLicious has transitioned from the legacy PHP 8.2 / MySQL stack to a high-concurrency, modern TypeScript architecture:
 
-Orders reserve stock immediately under row locks. Cancellation returns it once. Completion converts the reserved order into a sale without deducting it twice. QR claims are evidence, never proof of settlement; an Administrator verifies against the merchant wallet. Confirmed orders mean refilling; pickup orders move directly to Completed at handover, delivery orders pass through Out for delivery. Pending reservations remain until staff cancel them (no silent expiry).
+| Layer | Technology | Purpose |
+| :--- | :--- | :--- |
+| **Frontend Framework** | React 18 + TypeScript | Single Page Application with component modularity |
+| **Routing** | React Router DOM v7 | Unified routing supporting modern `/sales` and legacy `.html` route aliases |
+| **Styling** | Tailwind CSS v3 + DaisyUI v4 | Responsive mobile-first design with water station theme |
+| **State & Fetching** | TanStack Query v5 | Reactive cache, automatic revalidation, mutation state |
+| **Authentication** | Firebase Web SDK + Admin SDK | Identity management, Firebase ID JWTs, zero plain/hashed passwords in PostgreSQL |
+| **Dates & Calendars** | `date-fns` + `react-datepicker` | Timezone-aware date modeling (`Asia/Manila`) |
+| **Networking & Failover** | Custom Multi-Server Resolver | Automatic node health check, cluster ID verification (`aqualicious-cluster-primary`), failover |
+| **Mobile Runtime** | Capacitor 7 (Android) | Native Android packaging for web assets, hardware back button, native camera/photo access |
+| **Backend Runtime** | Node.js 22 (`node:22-alpine` in Docker) | Asynchronous I/O, strict TypeScript execution |
+| **Web Framework** | Express 4 | REST API with dual routing (`/api/*` and legacy `/backend/api/*.php`) |
+| **Database** | PostgreSQL 18 | ACID compliance, row-level locking (`SELECT ... FOR UPDATE`), transactional isolation |
+| **ORM Client** | Prisma 6 (`@prisma/client`, `@prisma/adapter-pg`)| Type-safe schema migrations, queries, and connection pooling |
+| **Security & Validation**| Helmet, express-rate-limit, sanitize-html, Zod | Defense-in-depth against XSS, injection, brute force, and payload tampering |
+| **Process Execution** | PM2 for production; `tsx` for development | Zero-downtime cluster clustering and daemon supervision |
 
-Seven-day SMA uses the last seven completed Asia/Manila calendar days, including zeros. Regression uses the same days: percentage slope = daily least-squares slope / mean daily revenue × 100. A zero mean is Stable. ROP = ceil(seven-day average units × lead time days + safety stock); configured reorder_pt is a minimum floor. Critical is stock <= effective ROP; Warning is stock < 1.5 × ROP; otherwise Normal. Gross profit uses sale-time cost snapshots and excludes voided sales. Reports are management reports, not tax invoices.
+---
 
-Bearer JWTs expire after 30 minutes and stay in memory on mobile; web page navigation uses sessionStorage for the JWT only, never passwords. Logout clears it. Active status and role are checked on each API request. Passwords use bcrypt cost 12 and are limited to 12–72 bytes. CORS is an explicit origin allowlist. HTTPS is required in production. Polling every five seconds provides near-real-time sync while connected; no offline sales are accepted.
+## Core Business Invariants Preserved
 
-The schema is for a fresh database. Back up an existing installation and migrate explicitly; do not import it over the prototype schema. The old prototype sales cannot yield historically reliable cost snapshots, so preserve them as a read-only archive rather than inventing historical costs.
+1. **Atomic Checkout & Pessimistic Row Locking**:
+   - Every POS checkout and Customer order locks affected product rows in ascending ID order (`SELECT ... FOR UPDATE`) to prevent deadlocks and prevent overselling down to the final unit.
+   - Validates client `expected_total` against authoritative server prices before charging.
+   - Multi-item checkout transactions are all-or-nothing: if any product has insufficient stock, the entire cart rolls back.
+
+2. **Immutable Stock Ledger (`stock_movements`)**:
+   - Direct stock modifications are strictly prohibited. Every change writes an audit record storing `quantity_change`, `previous_stock`, `resulting_stock`, `movement_type` (`OPENING_STOCK`, `RESTOCK`, `ADJUSTMENT`, `SALE`, `SALE_VOID`, `ORDER_RESERVE`, `ORDER_CANCEL`), `user_id`, and `reason`.
+   - Running ledger balance reconciles exactly with `products.stock`.
+
+3. **Historical Cost Snapshots**:
+   - `sales_order_items` captures `unit_cost_snapshot` at the exact millisecond of checkout.
+   - Future supplier price edits or inventory cost changes never alter past profit margins or historical financial reports.
+
+4. **Idempotent Checkout & Replay Protection**:
+   - Every checkout and order submission includes a unique `request_key`.
+   - SHA-256 payload digests are cached in `idempotency_logs`. Retries with identical payload return the original receipt; retrying a used key with modified payload is rejected with `409 Conflict`.
+
+5. **Void Approvals & Re-authentication**:
+   - Only Administrators can void transactions.
+   - Voiding requires an explicit reason and re-authentication (Firebase ID token / credential verification).
+   - Voiding restores inventory exactly once and excludes the transaction from gross sales.
+
+6. **Order Reservation & QR Payment Review**:
+   - Customer orders immediately reserve stock under row locks.
+   - For GCash/Maya QR payments, reference claims and uploaded payment proofs are treated as claims, never automated settlement.
+   - Administrators review proofs against the station's merchant wallet, approving to advance fulfillment or rejecting to release reserved stock.
+
+7. **Analytics, SMA, & ROP Forecasting**:
+   - 7-day Simple Moving Average (SMA) analyzes the last 7 completed calendar days in `Asia/Manila` time, preserving zero-sales days.
+   - Linear regression calculates daily least-squares slope and percentage growth (`daily_slope / mean_revenue * 100`).
+   - Dynamic Reorder Point: `ROP = ceil(daily_usage * lead_time + safety_stock)`.
+
+---
+
+## Identity & Role-Based Access Control (RBAC)
+
+- Identity is decoupled from the database: user passwords never touch PostgreSQL.
+- Roles:
+  - `Administrator`: Full access (products, stock adjustments, voiding, users, financial analytics).
+  - `Staff`: POS checkout, order status advancement, viewing stock levels (cost snapshots and gross margins hidden).
+  - `Customer`: Catalog browsing, cart checkout, tracking own orders (cannot view admin analytics, restock, or view other customers' orders).
+- Public registration (`/api/auth/register`) strictly provisions `Customer` role. `Administrator` and `Staff` accounts must be provisioned through trusted administrative channels.

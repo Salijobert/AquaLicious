@@ -6,6 +6,8 @@
 **/local.properties
 **/*.jks
 **/*.keystore
+backend/dist/
+frontend/dist/
 .tools/
 runtime/
 private-signing/
