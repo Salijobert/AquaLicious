@@ -6,6 +6,7 @@
 **/local.properties
 **/*.jks
 **/*.keystore
+*service-account*.json
 backend/dist/
 frontend/dist/
 .tools/

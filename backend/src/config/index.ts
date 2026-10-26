@@ -1,8 +1,13 @@
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { PrismaClient } from '@prisma/client';
 import admin from 'firebase-admin';
 import jwt from 'jsonwebtoken';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
@@ -14,7 +19,7 @@ export const config = {
   corsOrigins: (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:8080,http://localhost:8090,https://localhost,capacitor://localhost')
     .split(',')
     .map(o => o.trim()),
-  firebaseProjectId: process.env.FIREBASE_PROJECT_ID || 'aqualicious-pos',
+  firebaseProjectId: process.env.FIREBASE_PROJECT_ID || 'aqualicious-723f9',
   gcashQrUrl: process.env.GCASH_QR_URL || '',
   mayaQrUrl: process.env.MAYA_QR_URL || '',
   timezone: process.env.TIMEZONE || 'Asia/Manila',
@@ -29,12 +34,47 @@ export const prisma = new PrismaClient();
 let firebaseApp: admin.app.App | null = null;
 try {
   if (admin.apps.length === 0) {
+    let credential: admin.credential.Credential | undefined;
+
     if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
-      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+      try {
+        const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+        credential = admin.credential.cert(serviceAccount);
+      } catch (e) {
+        console.warn('Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY JSON string');
+      }
+    } else {
+      const candidates = [
+        process.env.FIREBASE_SERVICE_ACCOUNT_PATH,
+        path.resolve(process.cwd(), 'service-account.json'),
+        path.resolve(process.cwd(), 'backend/service-account.json'),
+        path.resolve(__dirname, '../../service-account.json'),
+        path.resolve(__dirname, '../service-account.json')
+      ].filter(Boolean) as string[];
+
+      for (const p of candidates) {
+        if (fs.existsSync(p)) {
+          try {
+            const raw = fs.readFileSync(p, 'utf8');
+            const sa = JSON.parse(raw);
+            credential = admin.credential.cert(sa);
+            if (sa.project_id && !process.env.FIREBASE_PROJECT_ID) {
+              config.firebaseProjectId = sa.project_id;
+            }
+            break;
+          } catch (e) {
+            // continue
+          }
+        }
+      }
+    }
+
+    if (credential) {
       firebaseApp = admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
+        credential,
         projectId: config.firebaseProjectId
       });
+      console.log(`Firebase Admin SDK initialized with credentials for project: ${config.firebaseProjectId}`);
     } else {
       firebaseApp = admin.initializeApp({
         projectId: config.firebaseProjectId
@@ -43,8 +83,8 @@ try {
   } else {
     firebaseApp = admin.apps[0]!;
   }
-} catch (err) {
-  console.warn('Firebase Admin initialized in local development/fallback mode');
+} catch (err: any) {
+  console.warn('Firebase Admin initialized in local development/fallback mode:', err.message);
 }
 
 export { firebaseApp };

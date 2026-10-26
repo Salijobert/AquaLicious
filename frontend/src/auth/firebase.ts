@@ -6,11 +6,11 @@ import { resolver } from '../api/multiServerResolver.js';
 // Can be overridden via window.FIREBASE_CONFIG or .env
 const firebaseConfig = (window as any).FIREBASE_CONFIG || {
   apiKey: "AIzaSyAquaLiciousLocalDevKeyPlaceholder",
-  authDomain: "aqualicious-pos.firebaseapp.com",
-  projectId: "aqualicious-pos",
-  storageBucket: "aqualicious-pos.appspot.com",
-  messagingSenderId: "1234567890",
-  appId: "1:1234567890:web:abcdef123456"
+  authDomain: "aqualicious-723f9.firebaseapp.com",
+  projectId: "aqualicious-723f9",
+  storageBucket: "aqualicious-723f9.appspot.com",
+  messagingSenderId: "108104638216306500845",
+  appId: "1:108104638216306500845:web:aqualicious"
 };
 
 let app: FirebaseApp;
