@@ -1,0 +1,1 @@
+{"appId":"com.aqualicious.pos","appName":"AquaLicious","webDir":"www","server":{"androidScheme":"https"},"android":{"allowMixedContent":false,"webContentsDebuggingEnabled":false},"plugins":{"CapacitorHttp":{"enabled":true},"SplashScreen":{"backgroundColor":"#162e43"}}}

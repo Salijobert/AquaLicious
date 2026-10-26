@@ -1,0 +1,26 @@
+import {chromium} from 'playwright';
+import assert from 'node:assert/strict';
+import {mkdir} from 'node:fs/promises';
+const browser=await chromium.launch({headless:true,executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe'});
+const web=process.env.AQ_TEST_WEB||'http://127.0.0.1:8088';
+const page=await browser.newPage({viewport:{width:1440,height:1000}});
+const errors=[];page.on('pageerror',err=>errors.push(err.message));
+await mkdir('runtime/screenshots',{recursive:true});
+await page.goto(web);
+await page.locator('[name=username]').fill(process.env.AQ_UI_USERNAME);await page.locator('[name=password]').fill(process.env.AQ_ADMIN_PASSWORD);
+await page.locator('#auth-form button').click();await page.waitForURL('**/dashboard.html');await page.getByRole('heading',{name:'Reorder alerts'}).waitFor();
+await page.screenshot({path:'runtime/screenshots/web-dashboard.png',fullPage:true});
+await page.locator('[data-id="sales"].nav-item').click();await page.waitForURL('**/sales.html');await page.getByRole('heading',{name:'Quick checkout'}).waitFor();
+await page.locator('[data-action=add][data-id="2"]').click();await page.locator('[name=cash_tendered]').fill('300');await page.locator('#checkout-form button').click();await page.locator('dialog[open] .receipt').waitFor();
+assert.match(await page.locator('dialog').innerText(),/Change:.*50/);await page.screenshot({path:'runtime/screenshots/web-receipt.png',fullPage:true});await page.locator('.dialog-close').click();
+await page.locator('[data-id="inventory"].nav-item').click();await page.getByRole('heading',{name:'Inventory Monitoring'}).waitFor();await page.locator('[data-action=rop]').click();await page.locator('[name=usage]').fill('50');await page.locator('[name=lead]').fill('2');await page.locator('[name=safety]').fill('30');await page.locator('[name=stock]').fill('120');await page.locator('#rop-form button').click();assert.match(await page.locator('#rop-result').innerText(),/130 units · Critical/);await page.locator('.dialog-close').click();
+await page.screenshot({path:'runtime/screenshots/web-inventory.png',fullPage:true});
+for(const route of ['products','reports','orders','users']) { await page.goto(web+'/frontend/pages/'+route+'.html');await page.locator('.page-content h1').waitFor();assert.equal(await page.locator('#page-error').innerText(),''); }
+const mobile=await browser.newPage({viewport:{width:390,height:844},isMobile:true,deviceScaleFactor:1});mobile.on('pageerror',err=>errors.push(err.message));
+await mobile.goto('http://localhost:8090');await mobile.evaluate(base=>{localStorage.setItem('aq_server',base+'/backend/api');},web);await mobile.reload();await mobile.locator('[data-action=add][data-id="2"]').waitFor();await mobile.waitForSelector('#splash',{state:'detached'});await mobile.screenshot({path:'runtime/screenshots/mobile-catalog.png',fullPage:true});
+await mobile.locator('[data-action=add][data-id="2"]').click();await mobile.locator('.mobile-top [data-id=cart]').click();await mobile.locator('#checkout-form').waitFor();await mobile.screenshot({path:'runtime/screenshots/mobile-cart.png',fullPage:true});
+await mobile.locator('#checkout-form button').click();await mobile.locator('#auth-form').waitFor();await mobile.screenshot({path:'runtime/screenshots/mobile-login.png',fullPage:true});
+await mobile.locator('[data-action=register]').click();await mobile.locator('[name=name]').fill('Mobile Customer');await mobile.locator('[name=username]').fill('mobile-'+Date.now());await mobile.locator('[name=password]').fill(process.env.AQ_ADMIN_PASSWORD);await mobile.locator('[name=confirmation]').fill(process.env.AQ_ADMIN_PASSWORD);await mobile.locator('#auth-form button').click();await mobile.locator('[data-action=add][data-id="2"]').waitFor();
+await mobile.locator('.mobile-top [data-id=cart]').click();await mobile.locator('#checkout-form button').click();await mobile.getByRole('heading',{name:'My Orders'}).waitFor();await mobile.locator('.order').waitFor();await mobile.screenshot({path:'runtime/screenshots/mobile-orders.png',fullPage:true});
+assert.equal(errors.length,0,errors.join('\n'));console.log('PASS desktop login, navigation, POS receipt/change, ROP calculator, mobile catalog/cart/login/registration/order with no browser errors.');
+await browser.close();

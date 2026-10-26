@@ -1,0 +1,14 @@
+**/node_modules/
+**/vendor/
+**/.env
+**/build/
+**/.gradle/
+**/local.properties
+**/*.jks
+**/*.keystore
+.tools/
+runtime/
+private-signing/
+deliverables/
+paper-extracted.txt
+mockups-contact.png

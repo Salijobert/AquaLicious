@@ -1,0 +1,7 @@
+Options -Indexes
+RewriteEngine On
+RewriteRule ^(?!api/[a-z]+\.php$).* - [F,L]
+SetEnvIf Authorization "(.+)" HTTP_AUTHORIZATION=$1
+<FilesMatch "^(schema\.sql|composer\..*|create-admin\.php|\.env.*)$">
+ Require all denied
+</FilesMatch>

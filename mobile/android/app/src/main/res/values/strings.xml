@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">AquaLicious</string>
+    <string name="title_activity_main">AquaLicious</string>
+    <string name="package_name">com.aqualicious.pos</string>
+    <string name="custom_url_scheme">com.aqualicious.pos</string>
+</resources>

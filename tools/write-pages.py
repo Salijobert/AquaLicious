@@ -1,0 +1,6 @@
+from pathlib import Path
+root=Path(__file__).resolve().parents[1]/'aqualicious website'
+for page in ['dashboard','products','sales','inventory','reports','orders','users']:
+ (root/'frontend/pages'/f'{page}.html').write_text(f'''<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{page.title()} — AquaLicious</title><link rel="stylesheet" href="../css/shared.css"><link rel="stylesheet" href="../css/live.css"><script defer src="../js/api.js"></script><script defer src="../js/shared.js"></script></head><body data-page="{page}"><div id="app"></div><div id="toast" role="status"></div><dialog id="dialog"></dialog></body></html>''',encoding='utf-8')
+(root/'index.html').write_text('''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AquaLicious — Welcome</title><link rel="stylesheet" href="frontend/css/shared.css"><link rel="stylesheet" href="frontend/css/live.css"><script defer src="frontend/js/api.js"></script><script defer src="frontend/js/shared.js"></script></head><body data-page="login"><div id="app"></div><div id="toast" role="status"></div><dialog id="dialog"></dialog></body></html>''',encoding='utf-8')

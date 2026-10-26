@@ -1,0 +1,38 @@
+services:
+  database:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: aqualicious_db
+      MYSQL_USER: aqualicious
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./aqualicious website/backend/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./docs/runtime-grants.sql:/docker-entrypoint-initdb.d/02-runtime-grants.sql:ro
+    healthcheck:
+      test: [CMD-SHELL, 'mysqladmin ping -h localhost -u root -p"$$MYSQL_ROOT_PASSWORD" --silent']
+      interval: 10s
+      timeout: 5s
+      retries: 15
+  web:
+    build: ./aqualicious website
+    restart: unless-stopped
+    ports:
+      - 127.0.0.1:8080:80
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      DB_HOST: database
+      DB_PORT: 3306
+      DB_NAME: aqualicious_db
+      DB_USER: aqualicious
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://localhost}
+      GCASH_QR_URL: ${GCASH_QR_URL:-}
+      MAYA_QR_URL: ${MAYA_QR_URL:-}
+volumes:
+  mysql-data:

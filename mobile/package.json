@@ -1,0 +1,1 @@
+{"name":"aqualicious-mobile","version":"1.0.0","private":true,"scripts":{"sync":"node ../tools/sync-mobile.mjs && cap sync android","android":"cap open android"},"dependencies":{"@capacitor/android":"8.5.3","@capacitor/core":"8.5.3"},"devDependencies":{"@capacitor/cli":"8.5.3"}}

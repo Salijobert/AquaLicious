@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';import {randomUUID} from 'node:crypto';
+const base='http://127.0.0.1:8092/backend/api';const password=process.env.AQ_ADMIN_PASSWORD;let n=0;
+for(let i=0;i<30;i++){try{await fetch(base+'/config.php');break;}catch{await new Promise(r=>setTimeout(r,100));}}
+const ok=(v,s)=>{assert.ok(v,s);console.log('PASS '+s);n++;};
+async function req(path,data,method='GET',token=''){const r=await fetch(base+'/'+path,{method,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:data?JSON.stringify(data):undefined});return{code:r.status,data:await r.json()};}
+const a=(await req('auth.php',{username:process.env.AQ_UI_USERNAME,password},'POST')).data.token;
+const c=(await req('auth.php',{action:'register',name:'QR Customer',username:randomUUID(),password},'POST')).data.token;
+const other=(await req('auth.php',{action:'register',name:'Other Customer',username:randomUUID(),password},'POST')).data.token;
+const create=()=>req('orders.php',{items:[{product_id:2,qty:1}],fulfillment:'DELIVERY',address:'Test address',method:'GCASH_QR',request_key:randomUUID()},'POST',c);
+const o=await create();ok(o.code===200,'QR order created with configured merchant');const id=o.data.id;
+ok((await req('orders.php?id='+id,null,'GET',other)).code===404,'Customer cannot read another customer order');
+ok((await req('orders.php',{id,action:'status',status:'CONFIRMED'},'PATCH',a)).code===409,'Unverified QR cannot enter fulfillment');
+ok((await req('orders.php',{id,action:'claim',reference_number:'invalid',proof_base64:Buffer.from('<script>alert(1)</script>').toString('base64')},'PATCH',c)).code===422,'Non-image payment proof rejected');
+const proof='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9ioAAAAASUVORK5CYII=';
+const ref='TEST-'+randomUUID();
+ok((await req('orders.php',{id,action:'claim',reference_number:ref,proof_base64:proof},'PATCH',c)).data.payment_status==='SUBMITTED','Image reference claim remains unverified');
+ok((await req('orders.php?proof='+id,null,'GET',other)).code===404,'Proof image authorization');
+ok((await req('orders.php',{id,action:'verify',notes:'Claimed by customer'},'PATCH',c)).code===403,'Customer cannot verify own payment');
+ok((await req('orders.php',{id,action:'reject',notes:'Reference mismatch'},'PATCH',a)).data.payment_status==='REJECTED','Administrator rejects claim');
+await req('orders.php',{id,action:'claim',reference_number:ref,proof_base64:proof},'PATCH',c);
+const o2=await create();ok((await req('orders.php',{id:o2.data.id,action:'claim',reference_number:ref,proof_base64:proof},'PATCH',c)).code===409,'Reference cannot be claimed by a second order');
+ok((await req('orders.php',{id,action:'verify',notes:'Matched against wallet'},'PATCH',a)).data.payment_status==='VERIFIED','Administrator verifies QR claim');
+await req('orders.php',{id,action:'status',status:'CONFIRMED'},'PATCH',a);
+ok((await req('orders.php',{id,action:'status',status:'OUT_FOR_DELIVERY'},'PATCH',a)).data.status==='OUT_FOR_DELIVERY','Verified order dispatch');
+ok((await req('orders.php',{id,action:'status',status:'COMPLETED'},'PATCH',a)).data.status==='COMPLETED','QR order completion');
+await req('orders.php',{id:o2.data.id,action:'claim',reference_number:'TEST-'+randomUUID(),proof_base64:proof},'PATCH',c);
+await req('orders.php',{id:o2.data.id,action:'verify',notes:'Verified for cancellation test'},'PATCH',a);
+ok((await req('orders.php',{id:o2.data.id,action:'status',status:'CANCELLED',notes:'Cancelled after payment'},'PATCH',a)).data.payment_status==='REFUND_REQUIRED','Cancellation preserves refund obligation');
+ok((await req('orders.php',{id:o2.data.id,action:'refunded',notes:'Refunded in merchant wallet'},'PATCH',a)).data.payment_status==='REFUNDED','Administrator records completed refund');
+const forged=a.slice(0,-5)+'abcde';ok((await req('users.php',null,'GET',forged)).code===401,'Tampered JWT rejected');
+console.log(n+' payment/security checks passed.');
