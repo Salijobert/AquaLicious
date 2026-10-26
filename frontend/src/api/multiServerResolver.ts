@@ -7,7 +7,7 @@ export interface ServerNode {
 }
 
 const isBrowserRemote = typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
-const ngrokUrl = 'https://extrude-reoccur-roulette.ngrok-free.dev';
+const ngrokUrl = 'https://muscular-donator-uncloak.ngrok-free.dev';
 
 const DEFAULT_SERVERS: ServerNode[] = [
   {
