@@ -24,7 +24,12 @@ export const config = {
   mayaQrUrl: process.env.MAYA_QR_URL || '',
   timezone: process.env.TIMEZONE || 'Asia/Manila',
   clusterId: process.env.CLUSTER_ID || 'aqualicious-cluster-primary',
-  jwtSecret: process.env.JWT_SECRET || 'aqualicious-dev-jwt-signing-secret-for-offline-testing-1234567890'
+  jwtSecret: process.env.JWT_SECRET || 'aqualicious-dev-jwt-signing-secret-for-offline-testing-1234567890',
+  adminEmail: process.env.ADMIN_EMAIL || 'aqualiciousadmin@gmail.com',
+  mailFromName: process.env.MAIL_FROM_NAME || 'AquaLicious',
+  smtpUser: process.env.SMTP_USER || '',
+  smtpPass: process.env.SMTP_PASS || '',
+  frontendUrl: (process.env.FRONTEND_URL || 'https://aqualicious.vercel.app').replace(/\/$/, '')
 };
 
 // Singleton Prisma Client
@@ -109,7 +114,7 @@ export async function verifyToken(idToken: string): Promise<TokenClaims> {
 
   // 1. Try Firebase Admin native verification if configured
   try {
-    const decoded = await admin.auth().verifyIdToken(idToken);
+    const decoded = await admin.auth().verifyIdToken(idToken, true);
     return {
       name: decoded.name || '',
       ...decoded,
@@ -117,16 +122,19 @@ export async function verifyToken(idToken: string): Promise<TokenClaims> {
       email: decoded.email
     };
   } catch (fbErr: any) {
-    // 2. In dev/test, fallback to local test JWT verification
-    if (config.nodeEnv !== 'production' || process.env.ALLOW_LOCAL_AUTH_FALLBACK === 'true') {
-      try {
-        const decoded = jwt.verify(idToken, config.jwtSecret) as TokenClaims;
-        if (decoded && decoded.uid) {
-          return decoded;
-        }
-      } catch (jwtErr) {
-        throw new Error('Invalid authentication token');
+    // 2. Fallback to local / backend-signed JWT verification (supports admin/staff username logins and test tokens)
+    try {
+      const decoded = jwt.verify(idToken, config.jwtSecret) as TokenClaims;
+      if (decoded && decoded.uid) {
+        return {
+          name: decoded.name || '',
+          ...decoded,
+          uid: decoded.uid,
+          email: decoded.email
+        };
       }
+    } catch (jwtErr) {
+      throw new Error(fbErr.message || 'Invalid authentication token');
     }
     throw new Error(fbErr.message || 'Invalid Firebase ID token');
   }
