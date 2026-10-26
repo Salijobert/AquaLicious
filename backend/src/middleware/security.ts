@@ -25,6 +25,7 @@ export const apiLimiter = rateLimit({
   max: config.nodeEnv === 'test' ? 10000 : 300,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
   message: { error: 'Too many requests, please try again later.' }
 });
 

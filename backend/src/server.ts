@@ -20,6 +20,9 @@ const __dirname = path.dirname(__filename);
 export function createApp() {
   const app = express();
 
+  // Trust reverse proxy headers (ngrok, Vercel, Nginx, Docker)
+  app.set('trust proxy', 1);
+
   // Basic security and parsing
   app.use(securityHeaders);
   app.use(corsHandler);
