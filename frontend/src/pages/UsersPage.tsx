@@ -12,8 +12,22 @@ export const UsersPage: React.FC = () => {
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [role, setRole] = useState('Administrator');
+  const [search, setSearch] = useState('');
   const [modalError, setModalError] = useState<string | null>(null);
   const usersContainerRef = useRef<HTMLDivElement>(null);
+
+  const filteredUsers = React.useMemo(() => {
+    if (!users) return [];
+    if (!search.trim()) return users;
+    const q = search.toLowerCase().trim();
+    return users.filter(
+      (u: any) =>
+        u.name?.toLowerCase().includes(q) ||
+        u.username?.toLowerCase().includes(q) ||
+        u.email?.toLowerCase().includes(q) ||
+        String(u.id).includes(q)
+    );
+  }, [users, search]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,9 +76,22 @@ export const UsersPage: React.FC = () => {
 
       {/* USERS TABLE */}
       <div className="card">
-        <div className="card-header">
-          <span className="card-title">👥 User Accounts</span>
-          <span className="text-xs text-gray-500">{users?.length || 0} user accounts</span>
+        <div className="card-header flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="card-title">👥 User Accounts</span>
+            <span className="text-xs text-gray-500">
+              {search.trim() ? `${filteredUsers.length} of ${users?.length || 0}` : (users?.length || 0)} user accounts
+            </span>
+          </div>
+          <div className="w-full sm:w-72">
+            <input
+              type="text"
+              placeholder="Search by name, username, email..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full text-xs px-3 py-1.5 rounded-lg border border-gray-200 bg-white focus:outline-none focus:border-[#1565c0]"
+            />
+          </div>
         </div>
         <div ref={usersContainerRef} className="overflow-x-auto overflow-y-auto max-h-[500px] rounded-xl border border-gray-100">
           <table>
@@ -79,7 +106,7 @@ export const UsersPage: React.FC = () => {
               </tr>
             </thead>
             <VirtualTableBody
-              items={users}
+              items={filteredUsers}
               containerRef={usersContainerRef}
               rowHeight={56}
               colSpan={6}
@@ -87,9 +114,12 @@ export const UsersPage: React.FC = () => {
                 <tr key={u.id}>
                   <td>
                     <div className="font-bold text-gray-900">{u.name}</div>
+                    {u.email && (
+                      <div className="text-[11px] text-gray-500 font-normal">{u.email}</div>
+                    )}
                     <div className="text-[10px] text-gray-400">ID #{u.id}</div>
                   </td>
-                  <td className="font-mono text-gray-700">@{u.username}</td>
+                  <td className="font-mono text-gray-700">{u.username}</td>
                   <td>
                     <span
                       className={`badge ${
