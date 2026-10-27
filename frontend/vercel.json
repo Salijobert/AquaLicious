@@ -1,4 +1,49 @@
 {
+  "redirects": [
+    { "source": "/index.html", "destination": "/", "permanent": true },
+    { "source": "/products", "destination": "/", "permanent": true },
+    { "source": "/products.html", "destination": "/", "permanent": true },
+    { "source": "/frontend/pages/products.html", "destination": "/", "permanent": true },
+
+    { "source": "/login.html", "destination": "/login", "permanent": true },
+    { "source": "/frontend/pages/login.html", "destination": "/login", "permanent": true },
+
+    { "source": "/register.html", "destination": "/register", "permanent": true },
+    { "source": "/frontend/pages/register.html", "destination": "/register", "permanent": true },
+
+    { "source": "/verify-email.html", "destination": "/verify-email", "permanent": true },
+    { "source": "/frontend/pages/verify-email.html", "destination": "/verify-email", "permanent": true },
+
+    { "source": "/verify-email-complete.html", "destination": "/verify-email-complete", "permanent": true },
+    { "source": "/frontend/pages/verify-email-complete.html", "destination": "/verify-email-complete", "permanent": true },
+
+    { "source": "/forgot-password.html", "destination": "/forgot-password", "permanent": true },
+    { "source": "/frontend/pages/forgot-password.html", "destination": "/forgot-password", "permanent": true },
+
+    { "source": "/reset-password-complete.html", "destination": "/reset-password-complete", "permanent": true },
+    { "source": "/frontend/pages/reset-password-complete.html", "destination": "/reset-password-complete", "permanent": true },
+
+    { "source": "/dashboard.html", "destination": "/dashboard", "permanent": true },
+    { "source": "/frontend/pages/dashboard.html", "destination": "/dashboard", "permanent": true },
+
+    { "source": "/sales.html", "destination": "/sales", "permanent": true },
+    { "source": "/frontend/pages/sales.html", "destination": "/sales", "permanent": true },
+
+    { "source": "/inventory.html", "destination": "/inventory", "permanent": true },
+    { "source": "/frontend/pages/inventory.html", "destination": "/inventory", "permanent": true },
+
+    { "source": "/orders.html", "destination": "/orders", "permanent": true },
+    { "source": "/frontend/pages/orders.html", "destination": "/orders", "permanent": true },
+
+    { "source": "/reports.html", "destination": "/reports", "permanent": true },
+    { "source": "/frontend/pages/reports.html", "destination": "/reports", "permanent": true },
+
+    { "source": "/users.html", "destination": "/users", "permanent": true },
+    { "source": "/frontend/pages/users.html", "destination": "/users", "permanent": true },
+
+    { "source": "/admin/products.html", "destination": "/admin/products", "permanent": true },
+    { "source": "/frontend/pages/admin/products.html", "destination": "/admin/products", "permanent": true }
+  ],
   "rewrites": [
     {
       "source": "/(.*)",

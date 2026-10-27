@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';import {randomUUID} from 'node:crypto';
-const base='http://127.0.0.1:8092/backend/api';const password=process.env.AQ_ADMIN_PASSWORD;let n=0;
+const base=process.env.AQ_TEST_URL||'http://127.0.0.1:8088/backend/api';const password=process.env.AQ_ADMIN_PASSWORD||'admin123';const adminUsername=process.env.AQ_UI_USERNAME||'test-owner';let n=0;
 for(let i=0;i<30;i++){try{await fetch(base+'/config.php');break;}catch{await new Promise(r=>setTimeout(r,100));}}
 const ok=(v,s)=>{assert.ok(v,s);console.log('PASS '+s);n++;};
 async function req(path,data,method='GET',token=''){const r=await fetch(base+'/'+path,{method,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:data?JSON.stringify(data):undefined});return{code:r.status,data:await r.json()};}
-const a=(await req('auth.php',{username:process.env.AQ_UI_USERNAME,password},'POST')).data.token;
-const c=(await req('auth.php',{action:'register',name:'QR Customer',username:randomUUID(),password},'POST')).data.token;
-const other=(await req('auth.php',{action:'register',name:'Other Customer',username:randomUUID(),password},'POST')).data.token;
+const a=(await req('auth.php',{username:adminUsername,password},'POST')).data.token;
+const cReg=(await req('auth.php',{action:'register',name:'QR Customer',username:'qr-'+randomUUID().substring(0,8),email:'qr-'+randomUUID().substring(0,8)+'@example.com',password,consent:true,termsVersion:'2026-10-27.2'},'POST')).data;
+ok((await req('orders.php',{items:[{product_id:2,qty:1}],fulfillment:'DELIVERY',address:'Test address',method:'GCASH_QR',request_key:randomUUID()},'POST',cReg.token)).code===403,'Unverified customer cannot place QR order');
+const c=(await req('auth.php',{action:'verify_email',email:cReg.user.email},'POST')).data.token;
+const otherReg=(await req('auth.php',{action:'register',name:'Other Customer',username:'other-'+randomUUID().substring(0,8),email:'other-'+randomUUID().substring(0,8)+'@example.com',password,consent:true,termsVersion:'2026-10-27.2'},'POST')).data;
+const other=(await req('auth.php',{action:'verify_email',email:otherReg.user.email},'POST')).data.token;
 const create=()=>req('orders.php',{items:[{product_id:2,qty:1}],fulfillment:'DELIVERY',address:'Test address',method:'GCASH_QR',request_key:randomUUID()},'POST',c);
 const o=await create();ok(o.code===200,'QR order created with configured merchant');const id=o.data.id;
 ok((await req('orders.php?id='+id,null,'GET',other)).code===404,'Customer cannot read another customer order');

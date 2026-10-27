@@ -3,6 +3,8 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { config } from './config/index.js';
+import { Mailer } from './services/mailer.js';
+import { AccountCleanupService } from './services/accountCleanupService.js';
 import { securityHeaders, corsHandler, apiLimiter } from './middleware/security.js';
 
 import authRoutes from './routes/authRoutes.js';
@@ -19,6 +21,9 @@ const __dirname = path.dirname(__filename);
 
 export function createApp() {
   const app = express();
+
+  // Initialize outbound mail transport (Gmail SMTP / Mock)
+  Mailer.initialize();
 
   // Trust reverse proxy headers (ngrok, Vercel, Nginx, Docker)
   app.set('trust proxy', 1);
@@ -104,4 +109,12 @@ app.listen(config.port, () => {
   console.log(`AquaLicious Express Server running on port ${config.port} (IPv4 + IPv6)`);
   console.log(`Cluster ID: ${config.clusterId}`);
   console.log(`Timezone: ${config.timezone}`);
+
+  // Start scheduled unverified account cleanup (PM2 cluster worker 0 guard)
+  AccountCleanupService.startSchedule();
+
+  // Notify PM2 that process is ready to handle connections
+  if (process.send) {
+    process.send('ready');
+  }
 });

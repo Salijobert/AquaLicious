@@ -1,12 +1,16 @@
 **/node_modules/
 **/vendor/
 **/.env
+**/.env.*
+!**/.env.example
 **/build/
 **/.gradle/
 **/local.properties
 **/*.jks
 **/*.keystore
 *service-account*.json
+*.dump
+*.log
 backend/dist/
 frontend/dist/
 .tools/
@@ -15,3 +19,6 @@ private-signing/
 deliverables/
 paper-extracted.txt
 mockups-contact.png
+tests/screenshots/
+tools/audit_results.json
+tools/staff_occurrences.json

@@ -1,6 +1,7 @@
 import { prisma } from '../config/index.js';
 import { MovementType, OrderStatus, OrderType, PaymentMethod, PaymentStatus, Role } from '@prisma/client';
 import { sanitize } from '../middleware/security.js';
+import { Mailer } from './mailer.js';
 import crypto from 'crypto';
 
 export class OrderService {
@@ -33,8 +34,9 @@ export class OrderService {
     }
 
     const sortedProductIds = Array.from(itemMap.keys()).sort((a, b) => a - b);
+    let receiptLines: Array<{ name: string; qty: number; unitPrice: number; subtotal: number }> = [];
 
-    return prisma.$transaction(async (tx) => {
+    const createdOrder = await prisma.$transaction(async (tx) => {
       // 1. Lock rows in ascending product ID order
       const lockedProducts: any[] = [];
       for (const pid of sortedProductIds) {
@@ -154,6 +156,13 @@ export class OrderService {
         });
       }
 
+      receiptLines = orderLines.map(l => ({
+        name: l.productName,
+        qty: l.quantity,
+        unitPrice: l.unitPrice,
+        subtotal: l.subtotal
+      }));
+
       return {
         id: order.id,
         order_number: order.orderNumber,
@@ -165,6 +174,47 @@ export class OrderService {
         created_at: order.createdAt.toISOString()
       };
     });
+
+    // 6. Outside transaction & row locks: asynchronous email notifications
+    (async () => {
+      try {
+        const customer = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { email: true, name: true }
+        });
+
+        if (customer?.email) {
+          await Mailer.sendOrderReceipt({
+            orderId: createdOrder.id,
+            orderNumber: createdOrder.order_number,
+            customerEmail: customer.email,
+            customerName: customer.name || 'Customer',
+            items: receiptLines,
+            total: createdOrder.total,
+            paymentMethod: createdOrder.payment_method,
+            fulfillment: createdOrder.fulfillment,
+            address,
+            createdAt: createdOrder.created_at,
+            userId,
+            idempotencyKey: requestKey || undefined
+          });
+        }
+
+        await Mailer.sendAdminOrderAlert({
+          orderId: createdOrder.id,
+          orderNumber: createdOrder.order_number,
+          customerName: customer?.name || 'Customer',
+          total: createdOrder.total,
+          paymentMethod: createdOrder.payment_method,
+          fulfillment: createdOrder.fulfillment,
+          type: 'NEW_ORDER'
+        });
+      } catch (err: any) {
+        console.error('[OrderService] Async post-order email error:', err.message);
+      }
+    })();
+
+    return createdOrder;
   }
 
   static async listOrders(user: { id: number; role: Role }, limit = 200) {
@@ -285,7 +335,10 @@ export class OrderService {
     const { id, action, user, body } = params;
     const order = await prisma.salesOrder.findUnique({
       where: { id },
-      include: { items: true }
+      include: {
+        items: true,
+        user: { select: { email: true, name: true } }
+      }
     });
 
     if (!order) {
@@ -334,6 +387,23 @@ export class OrderService {
           }
         });
 
+        // Outside transaction: notify admin of payment claim
+        (async () => {
+          try {
+            await Mailer.sendAdminOrderAlert({
+              orderId: updated.id,
+              orderNumber: order.orderNumber,
+              customerName: order.user?.name || 'Customer',
+              total: Number(order.totalAmount).toFixed(2),
+              paymentMethod: order.paymentMethod,
+              fulfillment: order.orderType,
+              type: 'PAYMENT_CLAIM'
+            });
+          } catch (err: any) {
+            console.error('[OrderService] Admin claim alert email error:', err.message);
+          }
+        })();
+
         return {
           id: updated.id,
           payment_status: updated.paymentStatus,
@@ -355,6 +425,25 @@ export class OrderService {
           }
         });
 
+        // Notify customer that payment was verified
+        (async () => {
+          try {
+            if (order.user?.email) {
+              await Mailer.sendOrderStatusUpdate({
+                orderId: updated.id,
+                orderNumber: order.orderNumber,
+                customerEmail: order.user.email,
+                customerName: order.user.name || 'Customer',
+                status: 'PAYMENT VERIFIED',
+                notes: updated.notes,
+                userId: order.userId
+              });
+            }
+          } catch (err: any) {
+            console.error('[OrderService] Verify status email error:', err.message);
+          }
+        })();
+
         return {
           id: updated.id,
           payment_status: updated.paymentStatus,
@@ -375,6 +464,25 @@ export class OrderService {
             notes: sanitize(body.notes) || 'Payment reference mismatch'
           }
         });
+
+        // Notify customer that payment was rejected with admin's reason
+        (async () => {
+          try {
+            if (order.user?.email) {
+              await Mailer.sendOrderStatusUpdate({
+                orderId: updated.id,
+                orderNumber: order.orderNumber,
+                customerEmail: order.user.email,
+                customerName: order.user.name || 'Customer',
+                status: 'PAYMENT REJECTED',
+                notes: updated.notes,
+                userId: order.userId
+              });
+            }
+          } catch (err: any) {
+            console.error('[OrderService] Reject status email error:', err.message);
+          }
+        })();
 
         return {
           id: updated.id,
@@ -409,7 +517,7 @@ export class OrderService {
             throw { status: 409, message: 'Repeated cancellation rejected' };
           }
 
-          return prisma.$transaction(async (tx) => {
+          const cancelResult = await prisma.$transaction(async (tx) => {
             const refundRequired = order.paymentStatus === PaymentStatus.VERIFIED;
             const updated = await tx.salesOrder.update({
               where: { id },
@@ -453,6 +561,27 @@ export class OrderService {
               payment_status: updated.paymentStatus
             };
           });
+
+          // Notify customer of order cancellation
+          (async () => {
+            try {
+              if (order.user?.email) {
+                await Mailer.sendOrderStatusUpdate({
+                  orderId: id,
+                  orderNumber: order.orderNumber,
+                  customerEmail: order.user.email,
+                  customerName: order.user.name || 'Customer',
+                  status: 'CANCELLED',
+                  notes: sanitize(body.notes) || 'Order Cancelled',
+                  userId: order.userId
+                });
+              }
+            } catch (err: any) {
+              console.error('[OrderService] Cancellation email error:', err.message);
+            }
+          })();
+
+          return cancelResult;
         }
 
         // Completion handling
@@ -470,6 +599,25 @@ export class OrderService {
             }
           });
 
+          // Notify customer of order completion
+          (async () => {
+            try {
+              if (order.user?.email) {
+                await Mailer.sendOrderStatusUpdate({
+                  orderId: updated.id,
+                  orderNumber: order.orderNumber,
+                  customerEmail: order.user.email,
+                  customerName: order.user.name || 'Customer',
+                  status: 'COMPLETED',
+                  notes: updated.notes,
+                  userId: order.userId
+                });
+              }
+            } catch (err: any) {
+              console.error('[OrderService] Completed email error:', err.message);
+            }
+          })();
+
           // Stock was already reserved at order placement, DO NOT deduct again
           return {
             id: updated.id,
@@ -486,6 +634,29 @@ export class OrderService {
             notes: sanitize(body.notes) || order.notes
           }
         });
+
+        // Notify customer of status change (dispatched/ready for pickup, confirmed)
+        (async () => {
+          try {
+            if (order.user?.email) {
+              let friendlyStatus = newStatus.toString();
+              if (newStatus === OrderStatus.OUT_FOR_DELIVERY) {
+                friendlyStatus = order.orderType === OrderType.DELIVERY ? 'OUT FOR DELIVERY' : 'READY FOR PICKUP';
+              }
+              await Mailer.sendOrderStatusUpdate({
+                orderId: updated.id,
+                orderNumber: order.orderNumber,
+                customerEmail: order.user.email,
+                customerName: order.user.name || 'Customer',
+                status: friendlyStatus,
+                notes: updated.notes,
+                userId: order.userId
+              });
+            }
+          } catch (err: any) {
+            console.error('[OrderService] Status update email error:', err.message);
+          }
+        })();
 
         return {
           id: updated.id,

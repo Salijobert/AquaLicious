@@ -65,7 +65,7 @@ export const InventoryPage: React.FC = () => {
         </button>
       </div>
 
-      {/* Category Chips (matching inventory.html) */}
+      {/* Category Chips */}
       <div className="flex gap-2 flex-wrap" id="catChips">
         {categories.map((c) => (
           <button
@@ -80,7 +80,7 @@ export const InventoryPage: React.FC = () => {
         ))}
       </div>
 
-      {/* Stock Levels Table (matching inventory.html) */}
+      {/* Stock Levels Table */}
       <div className="card">
         <div className="card-header">
           <span className="card-title">📦 Stock Levels & Capacity</span>

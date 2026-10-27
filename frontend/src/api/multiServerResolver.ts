@@ -6,7 +6,12 @@ export interface ServerNode {
   latencyMs?: number;
 }
 
-const isBrowserRemote = typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+const isCapacitor = typeof window !== 'undefined' && (
+  (window as any).Capacitor !== undefined ||
+  window.location.protocol === 'capacitor:' ||
+  window.location.protocol === 'file:'
+);
+const isBrowserRemote = isCapacitor || (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1');
 const ngrokUrl = 'https://muscular-donator-uncloak.ngrok-free.dev';
 
 const DEFAULT_SERVERS: ServerNode[] = [
@@ -38,16 +43,12 @@ class MultiServerResolver {
   private token: string = '';
 
   constructor() {
-    const saved = localStorage.getItem('aq_servers');
-    if (saved) {
-      try {
-        this.servers = JSON.parse(saved);
-      } catch {
-        this.servers = DEFAULT_SERVERS;
-      }
-    } else {
-      this.servers = DEFAULT_SERVERS;
-    }
+    // Purge any legacy client-side server override from localStorage for security
+    try {
+      localStorage.removeItem('aq_servers');
+    } catch {}
+
+    this.servers = DEFAULT_SERVERS;
     this.token = localStorage.getItem('aq_token') || sessionStorage.getItem('aq_token') || '';
   }
 
@@ -68,11 +69,6 @@ class MultiServerResolver {
     return [...this.servers];
   }
 
-  public setServers(servers: ServerNode[]) {
-    this.servers = servers;
-    localStorage.setItem('aq_servers', JSON.stringify(servers));
-  }
-
   public getActiveServer(): string {
     return this.servers[this.activeIndex]?.url || 'http://localhost:8088';
   }
@@ -83,7 +79,8 @@ class MultiServerResolver {
       const res = await fetch(`${serverUrl.replace(/\/$/, '')}/api/config`, {
         signal: AbortSignal.timeout(5000),
         headers: {
-          'X-AquaLicious-Cluster-Id': EXPECTED_CLUSTER_ID
+          'X-AquaLicious-Cluster-Id': EXPECTED_CLUSTER_ID,
+          'ngrok-skip-browser-warning': 'true'
         }
       });
       if (!res.ok) return false;

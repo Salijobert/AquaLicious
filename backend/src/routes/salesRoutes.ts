@@ -3,12 +3,12 @@ import { SalesService } from '../services/salesService.js';
 import { authenticate, requireRole, verifyAdminApproval } from '../middleware/auth.js';
 import { idempotencyMiddleware } from '../middleware/idempotency.js';
 import { Role } from '@prisma/client';
-import { prisma } from '../config/index.js';
+import { prisma, config } from '../config/index.js';
 
 const router = Router();
 
-// Staff/Admin list sales
-router.get('/', authenticate, requireRole([Role.ADMIN, Role.STAFF]), async (req: Request, res: Response) => {
+// Admin list sales
+router.get('/', authenticate, requireRole(Role.ADMIN), async (req: Request, res: Response) => {
   const id = req.query.id ? Number(req.query.id) : null;
   if (id) {
     const sale = await SalesService.getById(id);
@@ -23,11 +23,11 @@ router.get('/', authenticate, requireRole([Role.ADMIN, Role.STAFF]), async (req:
   return res.json(sales);
 });
 
-// Staff/Admin POS checkout
+// Admin POS checkout
 router.post(
   '/',
   authenticate,
-  requireRole([Role.ADMIN, Role.STAFF]),
+  requireRole(Role.ADMIN),
   idempotencyMiddleware('pos_checkout'),
   async (req: Request, res: Response) => {
     const { items, cash_tendered, expected_total, request_key } = req.body;
@@ -48,8 +48,8 @@ router.post(
   }
 );
 
-// Administrator void approval
-router.patch('/', authenticate, requireRole([Role.ADMIN, Role.STAFF]), async (req: Request, res: Response) => {
+// Administrator void action
+router.patch('/', authenticate, requireRole(Role.ADMIN), async (req: Request, res: Response) => {
   const { id, admin_token, admin_username, admin_password, reason } = req.body;
   const saleId = Number(id);
 
@@ -74,6 +74,10 @@ router.patch('/', authenticate, requireRole([Role.ADMIN, Role.STAFF]), async (re
   }
   // 3. Fallback compatibility with username/password check for legacy test harness
   else if (admin_username && admin_password) {
+    if (config.nodeEnv === 'production') {
+      return res.status(403).json({ error: 'Direct password voiding is disabled in production. Use authenticated admin session.' });
+    }
+
     const adminUser = await prisma.user.findFirst({
       where: {
         username: admin_username,
@@ -82,7 +86,8 @@ router.patch('/', authenticate, requireRole([Role.ADMIN, Role.STAFF]), async (re
       }
     });
 
-    if (adminUser && admin_password !== 'wrong') {
+    const expectedPassword = process.env.AQ_ADMIN_PASSWORD;
+    if (adminUser && expectedPassword && admin_password === expectedPassword) {
       adminId = adminUser.id;
     } else {
       return res.status(403).json({ error: 'Invalid void approval credentials' });

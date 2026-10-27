@@ -22,6 +22,7 @@ const env1 = {
   ...process.env,
   PORT: '8088',
   NODE_ENV: 'test',
+  AQ_MOCK_MAIL: 'true',
   DATABASE_URL: 'postgresql://postgres@localhost:5432/aqualicious_pg?schema=public',
   CLUSTER_ID: 'aqualicious-cluster-primary'
 };
@@ -33,6 +34,7 @@ const env2 = {
   ...process.env,
   PORT: '8089',
   NODE_ENV: 'test',
+  AQ_MOCK_MAIL: 'true',
   DATABASE_URL: 'postgresql://postgres@localhost:5432/aqualicious_pg?schema=public',
   CLUSTER_ID: 'aqualicious-cluster-primary'
 };
@@ -44,6 +46,7 @@ const env3 = {
   ...process.env,
   PORT: '8092',
   NODE_ENV: 'test',
+  AQ_MOCK_MAIL: 'true',
   DATABASE_URL: 'postgresql://postgres@localhost:5432/aqualicious_pg?schema=public',
   CLUSTER_ID: 'aqualicious-cluster-primary'
 };

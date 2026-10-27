@@ -10,7 +10,7 @@ export const UsersPage: React.FC = () => {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
-  const [role, setRole] = useState('Staff');
+  const [role, setRole] = useState('Administrator');
   const [modalError, setModalError] = useState<string | null>(null);
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -21,7 +21,7 @@ export const UsersPage: React.FC = () => {
       setIsCreateOpen(false);
       setName('');
       setUsername('');
-      setRole('Staff');
+      setRole('Administrator');
     } catch (err: any) {
       setModalError(err.message || 'Failed to create user');
     }
@@ -47,21 +47,21 @@ export const UsersPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">User Management</h1>
-          <p className="text-xs text-slate-500 font-semibold">Administrator & Cashier Staff Role Provisioning</p>
+          <p className="text-xs text-slate-500 font-semibold">Administrator & Customer User Accounts</p>
         </div>
 
         <button
           onClick={() => setIsCreateOpen(true)}
           className="btn btn-primary btn-sm gap-2 font-bold shadow"
         >
-          <UserPlus className="w-4 h-4" /> Provision Employee
+          <UserPlus className="w-4 h-4" /> Provision User
         </button>
       </div>
 
       {/* USERS TABLE */}
       <div className="card">
         <div className="card-header">
-          <span className="card-title">👥 Station Staff Accounts</span>
+          <span className="card-title">👥 User Accounts</span>
           <span className="text-xs text-gray-500">{users?.length || 0} user accounts</span>
         </div>
         <div className="overflow-x-auto">
@@ -127,7 +127,7 @@ export const UsersPage: React.FC = () => {
         <div className="modal-overlay active">
           <div className="modal aq-modal" style={{ maxWidth: '440px' }}>
             <div className="modal-header">
-              <span className="modal-title">Provision Staff Member</span>
+              <span className="modal-title">Provision User</span>
               <button className="modal-close" onClick={() => setIsCreateOpen(false)}>
                 ✕
               </button>
@@ -154,7 +154,7 @@ export const UsersPage: React.FC = () => {
                 <input
                   required
                   className="form-control"
-                  placeholder="e.g. maria_cashier"
+                  placeholder="e.g. maria_admin"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                 />
@@ -167,8 +167,8 @@ export const UsersPage: React.FC = () => {
                   value={role}
                   onChange={(e) => setRole(e.target.value)}
                 >
-                  <option value="Staff">Staff (Cashier / Operations)</option>
                   <option value="Administrator">Administrator (Owner / Manager)</option>
+                  <option value="Customer">Customer</option>
                 </select>
               </div>
 

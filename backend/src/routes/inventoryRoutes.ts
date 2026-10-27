@@ -5,8 +5,8 @@ import { Role } from '@prisma/client';
 
 const router = Router();
 
-// Staff/Admin inventory monitoring & ledger
-router.get('/', authenticate, requireRole([Role.ADMIN, Role.STAFF]), async (req: Request, res: Response) => {
+// Admin inventory monitoring & ledger
+router.get('/', authenticate, requireRole(Role.ADMIN), async (req: Request, res: Response) => {
   if (req.query.ledger === '1' || req.query.ledger === 'true') {
     const limit = Number(req.query.limit) || 500;
     const ledger = await InventoryService.getLedger(limit);

@@ -86,7 +86,7 @@ export class ProductService {
     category_id: number;
     product_type?: ProductType;
     volume_label?: string;
-    image_url?: string;
+    image_url?: string | null;
     selling_price: number | string;
     production_cost?: number | string;
     reorder_pt?: number;
@@ -94,8 +94,25 @@ export class ProductService {
     safety_stock?: number;
     active?: boolean;
   }) {
-    const sku = sanitize(data.sku).toUpperCase();
-    const name = sanitize(data.name);
+    const sku = sanitize(data.sku).trim().toUpperCase();
+    const name = sanitize(data.name).trim().replace(/\s+/g, ' ');
+    const volumeLabel = (sanitize(data.volume_label || '') || '5-Gallon').trim().replace(/\s+/g, ' ');
+
+    // Conflict check on lower(trim(name)) + lower(trim(volumeLabel))
+    const existingConflict: any[] = await prisma.$queryRaw`
+      SELECT id, name, "volumeLabel"
+      FROM products
+      WHERE lower(trim(name)) = lower(trim(${name}))
+        AND lower(trim("volumeLabel")) = lower(trim(${volumeLabel}))
+      LIMIT 1
+    `;
+
+    if (existingConflict.length > 0) {
+      throw {
+        status: 409,
+        message: `A product with name '${name}' and volume '${volumeLabel}' already exists (ID: ${existingConflict[0].id})`
+      };
+    }
 
     return prisma.product.create({
       data: {
@@ -103,7 +120,7 @@ export class ProductService {
         name,
         categoryId: Number(data.category_id),
         productType: data.product_type || ProductType.REFILL,
-        volumeLabel: sanitize(data.volume_label) || '5-Gallon',
+        volumeLabel,
         imageUrl: data.image_url ? sanitize(data.image_url) : null,
         sellingPrice: Number(data.selling_price),
         productionCost: Number(data.production_cost || 0),
@@ -117,11 +134,38 @@ export class ProductService {
   }
 
   static async updateProduct(id: number, data: any) {
+    const existing = await prisma.product.findUnique({ where: { id } });
+    if (!existing) {
+      throw { status: 404, message: 'Product not found' };
+    }
+
     const updateData: any = {};
-    if (data.name !== undefined) updateData.name = sanitize(data.name);
+    if (data.name !== undefined) updateData.name = sanitize(data.name).trim().replace(/\s+/g, ' ');
+    if (data.volume_label !== undefined) updateData.volumeLabel = sanitize(data.volume_label).trim().replace(/\s+/g, ' ');
+
+    const finalName = updateData.name !== undefined ? updateData.name : existing.name;
+    const finalVolume = updateData.volumeLabel !== undefined ? updateData.volumeLabel : existing.volumeLabel;
+
+    if (updateData.name !== undefined || updateData.volumeLabel !== undefined) {
+      const existingConflict: any[] = await prisma.$queryRaw`
+        SELECT id, name, "volumeLabel"
+        FROM products
+        WHERE lower(trim(name)) = lower(trim(${finalName}))
+          AND lower(trim("volumeLabel")) = lower(trim(${finalVolume}))
+          AND id != ${id}
+        LIMIT 1
+      `;
+
+      if (existingConflict.length > 0) {
+        throw {
+          status: 409,
+          message: `A product with name '${finalName}' and volume '${finalVolume}' already exists (ID: ${existingConflict[0].id})`
+        };
+      }
+    }
+
     if (data.category_id !== undefined) updateData.categoryId = Number(data.category_id);
     if (data.product_type !== undefined) updateData.productType = data.product_type;
-    if (data.volume_label !== undefined) updateData.volumeLabel = sanitize(data.volume_label);
     if (data.image_url !== undefined) updateData.imageUrl = data.image_url ? sanitize(data.image_url) : null;
     if (data.selling_price !== undefined) updateData.sellingPrice = Number(data.selling_price);
     if (data.production_cost !== undefined) updateData.productionCost = Number(data.production_cost);

@@ -38,16 +38,16 @@ HTTP Status Codes:
 | `/api/products` | `/backend/api/products.php`| GET | Public / All | Active catalog; cost fields visible to Administrator only |
 | `/api/products` | `/backend/api/products.php`| POST | Administrator | Create product with initial threshold and safety stock |
 | `/api/products/:id` | `/backend/api/products.php`| PATCH | Administrator | Update product details, prices, or soft-delete (`active: 0`) |
-| `/api/inventory` | `/backend/api/inventory.php`| GET | Staff, Admin | Real-time stock levels, 7-day usage, ROP; `?ledger=1` for history |
+| `/api/inventory` | `/backend/api/inventory.php`| GET | Administrator | Real-time stock levels, 7-day usage, ROP; `?ledger=1` for history |
 | `/api/inventory` | `/backend/api/inventory.php`| POST | Administrator | Restock (`RESTOCK`) or physical count correction (`ADJUSTMENT`) |
-| `/api/sales` | `/backend/api/sales.php` | GET | Staff, Admin | Recent sales receipts; `?id=123` for line items |
-| `/api/sales` | `/backend/api/sales.php` | POST | Staff, Admin | POS checkout: atomic pessimistic row locking, change calculation |
+| `/api/sales` | `/backend/api/sales.php` | GET | Administrator | Recent sales receipts; `?id=123` for line items |
+| `/api/sales` | `/backend/api/sales.php` | POST | Administrator | POS checkout: atomic pessimistic row locking, change calculation |
 | `/api/sales/:id/void` | `/backend/api/sales.php`| PATCH | Administrator | Void sale with admin re-auth; restores stock exactly once |
-| `/api/orders` | `/backend/api/orders.php` | GET | Customer/Staff | Customers view own orders; Staff views recent orders |
+| `/api/orders` | `/backend/api/orders.php` | GET | Customer, Admin | Customers view own orders; Administrator views all recent orders |
 | `/api/orders` | `/backend/api/orders.php` | POST | Customer | Create order; reserves stock immediately under row locks |
 | `/api/orders/:id` | `/backend/api/orders.php` | PATCH | Multiple | Actions: `claim` (QR proof), `verify`, `reject`, `status`, `refunded` |
-| `/api/reports` | `/backend/api/reports.php` | GET | Staff, Admin | 7-day SMA, linear regression, gross profit margin |
-| `/api/users` | `/backend/api/users.php` | GET / POST / PATCH | Administrator | Provision and manage Staff & Administrator profiles |
+| `/api/reports` | `/backend/api/reports.php` | GET | Administrator | 7-day SMA, linear regression, gross profit margin |
+| `/api/users` | `/backend/api/users.php` | GET / POST / PATCH | Administrator | Provision and manage User & Administrator profiles |
 | `/api/config` | `/backend/api/config.php` | GET | Public | Station metadata, merchant QR codes, cluster identification |
 
 ---

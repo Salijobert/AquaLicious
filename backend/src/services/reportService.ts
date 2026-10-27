@@ -4,10 +4,9 @@ import { subDays, format, startOfDay, endOfDay } from 'date-fns';
 
 export class ReportService {
   static async getAnalytics(role: Role, days = 30) {
-    const isStaff = role === Role.STAFF;
     const isAdmin = role === Role.ADMIN;
 
-    if (!isAdmin && !isStaff) {
+    if (!isAdmin) {
       throw { status: 403, message: 'Analytics access forbidden for customers' };
     }
 

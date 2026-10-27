@@ -131,7 +131,7 @@ If migrating existing data from the PHP/MySQL prototype:
    - Match categories to `Slim`, `Round`, `Purified`, `Mineral`.
    - Ensure opening stock movements are logged: never insert raw stock without a corresponding `OPENING_STOCK` movement record.
 3. User Passwords:
-   - Do NOT attempt to port bcrypt password hashes to PostgreSQL. Provision customer and staff identities through Firebase Authentication and link profiles via email/UID.
+   - Do NOT attempt to port bcrypt password hashes to PostgreSQL. Provision customer and administrator identities through Firebase Authentication and link profiles via email/UID.
 
 ### Safe Rollback
 1. Keep the legacy PHP/MySQL repository directory (`aqualicious website/`) and MySQL database intact.

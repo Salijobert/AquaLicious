@@ -6,7 +6,6 @@ import { CheckCircle, XCircle, Clock, Truck, QrCode } from 'lucide-react';
 export const OrdersPage: React.FC = () => {
   const { role } = useAuth();
   const isAdmin = role === 'Administrator';
-  const isStaff = role === 'Staff';
   const { data: orders, error } = useOrders();
   const { data: config } = useConfig();
   const patchOrderMutation = usePatchOrder();
@@ -195,8 +194,8 @@ export const OrdersPage: React.FC = () => {
                     </button>
                   )}
 
-                  {/* Staff / Admin Order Status Transitions */}
-                  {(isAdmin || isStaff) && (
+                  {/* Admin Order Status Transitions */}
+                  {isAdmin && (
                     <div className="flex flex-wrap gap-1.5 w-full">
                       {order.status === 'PENDING' && (
                         <button

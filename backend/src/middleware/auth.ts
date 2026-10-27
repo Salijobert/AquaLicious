@@ -11,6 +11,7 @@ export interface AuthUser {
   phone?: string | null;
   address?: string | null;
   role: Role;
+  emailVerified: boolean;
   active: boolean;
 }
 
@@ -49,7 +50,7 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
 
     if (!user) {
       // First sign-in for customer: auto-provision CUSTOMER role ONLY.
-      // Admin and Staff roles MUST be provisioned by trusted backend operations.
+      // Administrator role MUST be provisioned by trusted backend operations.
       const defaultUsername = claims.email 
         ? claims.email.split('@')[0]! + '-' + claims.uid.slice(-4)
         : 'user-' + claims.uid.slice(-6);
@@ -61,8 +62,18 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
           username: defaultUsername,
           email: claims.email || `${claims.uid}@aqualicious.local`,
           role: Role.CUSTOMER,
+          emailVerified: Boolean(claims.email_verified || claims.emailVerified),
           active: true
         }
+      });
+    }
+
+    // Sync token email verification with database if claims indicate verified
+    const isTokenVerified = Boolean(claims.email_verified || claims.emailVerified);
+    if (isTokenVerified && !user.emailVerified) {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { emailVerified: true }
       });
     }
 
@@ -124,6 +135,30 @@ export function requireRole(allowed: Role | Role[]) {
 
     next();
   };
+}
+
+/**
+ * Guard middleware enforcing email verification for customers.
+ * Administrators are exempt.
+ */
+export function requireEmailVerified(req: Request, res: Response, next: NextFunction) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  // Admin role is exempt
+  if (req.user.role === Role.ADMIN) {
+    return next();
+  }
+
+  if (!req.user.emailVerified) {
+    return res.status(403).json({
+      error: 'Email verification required before accessing this service.',
+      code: 'EMAIL_NOT_VERIFIED'
+    });
+  }
+
+  next();
 }
 
 /**

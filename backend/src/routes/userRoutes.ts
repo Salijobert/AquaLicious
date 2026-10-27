@@ -38,4 +38,18 @@ router.patch('/', authenticate, requireRole(Role.ADMIN), async (req: Request, re
   }
 });
 
+router.delete('/', authenticate, requireRole(Role.ADMIN), async (req: Request, res: Response) => {
+  const id = Number(req.body.id || req.query.id);
+  if (!id) {
+    return res.status(422).json({ error: 'User id is required' });
+  }
+
+  try {
+    const result = await UserService.deleteUser(id);
+    return res.status(200).json(result);
+  } catch (err: any) {
+    return res.status(err.status || 500).json({ error: err.message || 'User deletion failed' });
+  }
+});
+
 export default router;

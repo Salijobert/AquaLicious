@@ -1,14 +1,25 @@
 import { Router, Request, Response } from 'express';
 import { OrderService } from '../services/orderService.js';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, requireEmailVerified } from '../middleware/auth.js';
 import { idempotencyMiddleware } from '../middleware/idempotency.js';
+import { prisma } from '../config/index.js';
 
 const router = Router();
 
 router.get('/', authenticate, async (req: Request, res: Response) => {
-  const { id, proof, limit } = req.query;
+  const { id, proof, limit, email_logs } = req.query;
 
   try {
+    if (email_logs) {
+      if (req.user!.role !== 'ADMIN') {
+        return res.status(403).json({ error: 'Admin only' });
+      }
+      const logs = await prisma.emailLog.findMany({
+        where: email_logs !== '1' && email_logs !== 'true' ? { orderId: Number(email_logs) } : {},
+        orderBy: { id: 'desc' }
+      });
+      return res.json(logs);
+    }
     if (proof) {
       const proofData = await OrderService.getProof(Number(proof), req.user!);
       return res.json(proofData);
@@ -26,7 +37,7 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
   }
 });
 
-router.post('/', authenticate, idempotencyMiddleware('create_order'), async (req: Request, res: Response) => {
+router.post('/', authenticate, requireEmailVerified, idempotencyMiddleware('create_order'), async (req: Request, res: Response) => {
   const { items, fulfillment, address, method, expected_total, request_key } = req.body;
 
   try {
@@ -51,6 +62,14 @@ router.patch('/', authenticate, async (req: Request, res: Response) => {
 
   if (!id || !action) {
     return res.status(422).json({ error: 'Order id and action are required' });
+  }
+
+  // Block unverified customer from claiming payment proof
+  if (action === 'claim' && req.user!.role === 'CUSTOMER' && !req.user!.emailVerified) {
+    return res.status(403).json({
+      error: 'Email verification required before submitting payment claims',
+      code: 'EMAIL_NOT_VERIFIED'
+    });
   }
 
   try {

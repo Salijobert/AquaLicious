@@ -1,4 +1,4 @@
-import { prisma } from './config/index.js';
+import { prisma, config } from './config/index.js';
 import { Role, ProductType } from '@prisma/client';
 
 export async function seedDatabase(adminUsername = 'admin', adminName = 'Administrator') {
@@ -27,15 +27,30 @@ export async function seedDatabase(adminUsername = 'admin', adminName = 'Adminis
   }
 
   // 2. Default Administrator
+  const adminEmail = config.adminEmail || 'aqualiciousadmin@gmail.com';
+  const existingWithEmail = await prisma.user.findFirst({
+    where: { email: adminEmail }
+  });
+
+  const emailToUse = (!existingWithEmail || existingWithEmail.username === adminUsername)
+    ? adminEmail
+    : `${adminUsername}@aqualicious.local`;
+
   await prisma.user.upsert({
     where: { username: adminUsername },
-    update: { role: Role.ADMIN, active: true },
+    update: {
+      role: Role.ADMIN,
+      active: true,
+      email: emailToUse,
+      emailVerified: true
+    },
     create: {
       firebaseUid: `uid-${adminUsername}`,
       name: adminName,
       username: adminUsername,
-      email: `${adminUsername}@aqualicious.local`,
+      email: emailToUse,
       role: Role.ADMIN,
+      emailVerified: true,
       active: true
     }
   });

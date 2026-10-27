@@ -63,7 +63,6 @@ AquaLicious has transitioned from the legacy PHP 8.2 / MySQL stack to a high-con
 
 - Identity is decoupled from the database: user passwords never touch PostgreSQL.
 - Roles:
-  - `Administrator`: Full access (products, stock adjustments, voiding, users, financial analytics).
-  - `Staff`: POS checkout, order status advancement, viewing stock levels (cost snapshots and gross margins hidden).
+  - `Administrator`: Full access (products, stock adjustments, POS sales, order management, voiding, users, financial analytics).
   - `Customer`: Catalog browsing, cart checkout, tracking own orders (cannot view admin analytics, restock, or view other customers' orders).
-- Public registration (`/api/auth/register`) strictly provisions `Customer` role. `Administrator` and `Staff` accounts must be provisioned through trusted administrative channels.
+- Public registration (`/api/auth/register`) strictly provisions `Customer` role. `Administrator` accounts must be provisioned through trusted administrative channels.

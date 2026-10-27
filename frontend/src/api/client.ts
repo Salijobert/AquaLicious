@@ -101,11 +101,12 @@ export function useVoidSale() {
 }
 
 // Orders
-export function useOrders(id?: number) {
+export function useOrders(id?: number, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['orders', id],
     queryFn: () => resolver.request<any>(`/api/orders${id ? `?id=${id}` : ''}`),
-    refetchInterval: 5000
+    refetchInterval: 5000,
+    enabled: options?.enabled ?? true
   });
 }
 

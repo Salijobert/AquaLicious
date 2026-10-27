@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "verify:live": "node ../tools/verify-live-deployment.mjs",
+    "smoke": "node ../tools/post-deploy-smoke-test.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.66.0",

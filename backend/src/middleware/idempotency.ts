@@ -44,7 +44,6 @@ export function idempotencyMiddleware(actionName: string) {
       const originalJson = res.json.bind(res);
       res.json = function (body: any) {
         if (res.statusCode >= 200 && res.statusCode < 300) {
-          // Asynchronously record idempotency log
           prisma.idempotencyLog.create({
             data: {
               userId,
@@ -53,9 +52,13 @@ export function idempotencyMiddleware(actionName: string) {
               responseCode: res.statusCode,
               responseBody: JSON.stringify(body)
             }
+          }).then(() => {
+            originalJson(body);
           }).catch(err => {
             console.error('Failed to save idempotency log:', err);
+            originalJson(body);
           });
+          return res;
         }
         return originalJson(body);
       };

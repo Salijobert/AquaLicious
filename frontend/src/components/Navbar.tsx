@@ -24,11 +24,10 @@ export const Navbar: React.FC<NavbarProps> = ({ cartCount = 0, onOpenCart, onTog
   let pageTitle = 'Dashboard';
   if (path.includes('sales')) pageTitle = 'Sales Transactions';
   else if (path.includes('inventory')) pageTitle = 'Inventory Monitoring';
-  else if (path.includes('products')) pageTitle = 'Manage Products';
+  else if (path === '/' || path.includes('products')) pageTitle = 'Manage Products';
   else if (path.includes('reports')) pageTitle = 'Reports & Analytics';
   else if (path.includes('orders')) pageTitle = 'Orders Management';
   else if (path.includes('users')) pageTitle = 'User Management';
-  else if (path.includes('settings')) pageTitle = 'Server Cluster';
 
   // Compute low stock items & pending orders for notifications
   const lowStock = inventory?.filter((p: any) => p.stock <= p.effective_rop) || [];
@@ -77,15 +76,14 @@ export const Navbar: React.FC<NavbarProps> = ({ cartCount = 0, onOpenCart, onTog
           </button>
         )}
 
-        {/* Server status */}
-        <Link
-          to="/settings"
-          className="hidden sm:inline-flex items-center gap-1.5 text-xs text-blue-800 bg-[#e3f2fd] px-2.5 py-1 rounded-full font-medium hover:bg-blue-100"
+        {/* Server status indicator (static, no user-editable settings) */}
+        <div
+          className="hidden sm:inline-flex items-center gap-1.5 text-xs text-blue-800 bg-[#e3f2fd] px-2.5 py-1 rounded-full font-medium"
           title={`Active Server: ${resolver.getActiveServer()}`}
         >
           <Server className="w-3.5 h-3.5 text-[#1565c0]" />
           <span>Cluster Online</span>
-        </Link>
+        </div>
 
         {/* Notifications Popover */}
         <div className="relative">
@@ -117,7 +115,7 @@ export const Navbar: React.FC<NavbarProps> = ({ cartCount = 0, onOpenCart, onTog
                 {pendingOrders.map((o: any) => (
                   <Link
                     key={o.id}
-                    to="/orders.html"
+                    to="/orders"
                     onClick={() => setIsNotifOpen(false)}
                     className="p-3 hover:bg-blue-50 flex items-start gap-2 text-gray-800 block"
                   >
@@ -133,7 +131,7 @@ export const Navbar: React.FC<NavbarProps> = ({ cartCount = 0, onOpenCart, onTog
                 {lowStock.map((p: any) => (
                   <Link
                     key={p.id}
-                    to="/inventory.html"
+                    to="/inventory"
                     onClick={() => setIsNotifOpen(false)}
                     className="p-3 hover:bg-orange-50 flex items-start gap-2 text-gray-800 block"
                   >
@@ -166,9 +164,11 @@ export const Navbar: React.FC<NavbarProps> = ({ cartCount = 0, onOpenCart, onTog
         <span className="topbar-date hidden md:inline-block">{formattedDate}</span>
 
         {/* Role Badge */}
-        <span className="topbar-badge">
-          {role === 'Administrator' ? 'Admin' : role || 'Staff'}
-        </span>
+        {role && (
+          <span className="topbar-badge">
+            {role === 'Administrator' ? 'Admin' : role}
+          </span>
+        )}
       </div>
     </header>
   );

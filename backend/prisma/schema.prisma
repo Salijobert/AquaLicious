@@ -9,7 +9,6 @@ datasource db {
 
 enum Role {
   ADMIN
-  STAFF
   CUSTOMER
 }
 
@@ -68,6 +67,8 @@ model User {
   phone           String?
   address         String?
   role            Role             @default(CUSTOMER)
+  emailVerified   Boolean          @default(false)
+  verificationDeadline DateTime?   @map("verification_deadline")
   active          Boolean          @default(true)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
@@ -75,8 +76,23 @@ model User {
   salesOrders     SalesOrder[]
   stockMovements  StockMovement[]
   idempotencyLogs IdempotencyLog[]
+  consents        UserConsent[]
+  emailLogs       EmailLog[]
 
   @@map("users")
+}
+
+model UserConsent {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  consent      Boolean  @default(true)
+  termsVersion String
+  acceptedAt   DateTime @default(now())
+  ipAddress    String?
+  userAgent    String?
+
+  @@map("user_consents")
 }
 
 model Category {
@@ -139,6 +155,7 @@ model SalesOrder {
   createdAt        DateTime         @default(now())
 
   items            SalesOrderItem[]
+  emailLogs        EmailLog[]
 
   @@map("sales_orders")
 }
@@ -198,4 +215,23 @@ model AuditLog {
   createdAt DateTime @default(now())
 
   @@map("audit_logs")
+}
+
+model EmailLog {
+  id        Int         @id @default(autoincrement())
+  type      String      // 'VERIFICATION' | 'PASSWORD_RESET' | 'ORDER_RECEIPT' | 'ORDER_STATUS' | 'ADMIN_ALERT'
+  orderId   Int?
+  userId    Int?
+  toEmail        String
+  status         String      // 'SENT' | 'FAILED'
+  error          String?
+  idempotencyKey String?
+  sentAt         DateTime    @default(now())
+
+  order     SalesOrder? @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user      User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, type])
+  @@index([toEmail, type])
+  @@map("email_logs")
 }

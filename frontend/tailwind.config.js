@@ -6,10 +6,22 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['Poppins', 'sans-serif'],
+        serif: ['Playfair Display', 'serif'],
+      },
       colors: {
-        aquaNavy: '#162e43',
-        aquaCyan: '#2ca9da',
-        aquaPale: '#f0f3f7'
+        blueDeep: '#0b3d91',
+        blueMid: '#1565c0',
+        blueBright: '#1e88e5',
+        blueLight: '#bbdefb',
+        bluePale: '#e3f2fd',
+        gray100: '#f5f7fa',
+        gray200: '#eceff1',
+        gray300: '#cfd8dc',
+        gray500: '#78909c',
+        gray700: '#455a64',
+        gray900: '#263238',
       }
     },
   },
@@ -20,17 +32,17 @@ export default {
     themes: [
       {
         aqualicious: {
-          "primary": "#162e43",
-          "secondary": "#2ca9da",
-          "accent": "#0ea5e9",
-          "neutral": "#1e293b",
+          "primary": "#1565c0",
+          "secondary": "#1e88e5",
+          "accent": "#0b3d91",
+          "neutral": "#263238",
           "base-100": "#ffffff",
-          "base-200": "#f0f3f7",
-          "base-300": "#e2e8f0",
-          "info": "#2ca9da",
-          "success": "#22c55e",
-          "warning": "#f59e0b",
-          "error": "#ef4444",
+          "base-200": "#e3f2fd",
+          "base-300": "#cfd8dc",
+          "info": "#1e88e5",
+          "success": "#2e7d32",
+          "warning": "#e65100",
+          "error": "#c62828",
         },
       },
     ],

@@ -11,6 +11,17 @@ const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
+const isProduction = process.env.NODE_ENV === 'production';
+
+// In production, the server MUST refuse to start if JWT_SECRET is missing or weak (< 32 characters)
+if (isProduction) {
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.trim().length < 32) {
+    throw new Error(
+      'FATAL CONFIGURATION ERROR: In production, JWT_SECRET environment variable is required and must be at least 32 characters long. Server refusing to start.'
+    );
+  }
+}
+
 export const config = {
   port: parseInt(process.env.PORT || '8088', 10),
   failoverPort: parseInt(process.env.FAILOVER_PORT || '8089', 10),
@@ -24,12 +35,16 @@ export const config = {
   mayaQrUrl: process.env.MAYA_QR_URL || '',
   timezone: process.env.TIMEZONE || 'Asia/Manila',
   clusterId: process.env.CLUSTER_ID || 'aqualicious-cluster-primary',
-  jwtSecret: process.env.JWT_SECRET || 'aqualicious-dev-jwt-signing-secret-for-offline-testing-1234567890',
+  jwtSecret: process.env.JWT_SECRET || (isProduction ? '' : 'aqualicious-dev-jwt-signing-secret-for-offline-testing-1234567890'),
   adminEmail: process.env.ADMIN_EMAIL || 'aqualiciousadmin@gmail.com',
   mailFromName: process.env.MAIL_FROM_NAME || 'AquaLicious',
-  smtpUser: process.env.SMTP_USER || '',
+  smtpUser: process.env.SMTP_USER || 'aqualiciousadmin@gmail.com',
   smtpPass: process.env.SMTP_PASS || '',
-  frontendUrl: (process.env.FRONTEND_URL || 'https://aqualicious.vercel.app').replace(/\/$/, '')
+  frontendUrl: (process.env.FRONTEND_URL || 'https://aqualicious.vercel.app').replace(/\/$/, ''),
+  // Default to true (safe dry-run) when CLEANUP_DRY_RUN is unset, even in production
+  cleanupDryRun: process.env.CLEANUP_DRY_RUN !== undefined
+    ? process.env.CLEANUP_DRY_RUN === 'true'
+    : true
 };
 
 // Singleton Prisma Client
@@ -122,7 +137,7 @@ export async function verifyToken(idToken: string): Promise<TokenClaims> {
       email: decoded.email
     };
   } catch (fbErr: any) {
-    // 2. Fallback to local / backend-signed JWT verification (supports admin/staff username logins and test tokens)
+    // 2. Fallback to local / backend-signed JWT verification (supports admin username logins and test tokens)
     try {
       const decoded = jwt.verify(idToken, config.jwtSecret) as TokenClaims;
       if (decoded && decoded.uid) {
