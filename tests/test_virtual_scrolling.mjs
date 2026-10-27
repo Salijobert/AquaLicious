@@ -146,7 +146,7 @@ try {
   // =========================================================================
   console.log('\n[5] Testing Walk-in POS Sales History Virtual Scrolling & Skeletons...');
   await page.goto(`${baseUrl}/sales`);
-  await page.waitForSelector('h1:has-text("Walk-in POS")').catch(() => {});
+  await page.waitForSelector('h1:has-text("Quick checkout")');
 
   const salesTbody = page.locator('div.card:has-text("Walk-in POS Sales History") tbody[data-virtual-count]');
   await salesTbody.waitFor({ timeout: 5000 });

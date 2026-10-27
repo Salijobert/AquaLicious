@@ -1,8 +1,8 @@
 import React from 'react';
 
 /**
- * 1. Immutable Stock Movement Ledger Skeleton Row (7 columns)
- * Columns: Date & Time, Product, Movement Type, Delta, Prev → New, Actor, Notes
+ * 1. Immutable Stock Movement Ledger Skeleton Row (6 columns)
+ * Columns: Date & Time, Product, Movement Type, Delta, Prev → New, Notes
  */
 export const LedgerSkeletonRow: React.FC = () => {
   return (
@@ -22,9 +22,6 @@ export const LedgerSkeletonRow: React.FC = () => {
       </td>
       <td className="py-3 px-4">
         <div className="h-4 w-16 bg-slate-200 rounded-md" />
-      </td>
-      <td className="py-3 px-4">
-        <div className="h-4 w-20 bg-slate-200 rounded-md" />
       </td>
       <td className="py-3 px-4">
         <div className="h-4 w-36 bg-slate-100 rounded-md" />

@@ -191,7 +191,6 @@ export const InventoryPage: React.FC = () => {
                 <th>Movement Type</th>
                 <th>Delta</th>
                 <th>Prev → New</th>
-                <th>Actor</th>
                 <th>Notes</th>
               </tr>
             </thead>
@@ -199,42 +198,54 @@ export const InventoryPage: React.FC = () => {
               items={ledger}
               containerRef={ledgerContainerRef}
               rowHeight={52}
-              colSpan={7}
-              renderRow={(entry: any) => (
-                <tr key={entry.id}>
-                  <td className="text-gray-500">
-                    {new Date(entry.created_at).toLocaleString('en-PH')}
-                  </td>
-                  <td>
-                    <strong>{entry.product?.name || entry.product_id}</strong>
-                  </td>
-                  <td>
-                    <span
-                      className={`badge ${
-                        entry.type === 'SALE'
-                          ? 'badge-warning'
-                          : entry.type === 'RESTOCK'
-                          ? 'badge-success'
-                          : 'badge-info'
-                      }`}
-                    >
-                      {entry.type}
-                    </span>
-                  </td>
-                  <td className="font-bold">
-                    {entry.quantity_delta > 0 ? `+${entry.quantity_delta}` : entry.quantity_delta}
-                  </td>
-                  <td className="text-gray-600">
-                    {entry.balance_before} → {entry.balance_after}
-                  </td>
-                  <td>{entry.actor?.name || entry.actor_id || 'System'}</td>
-                  <td className="text-gray-500 truncate max-w-[200px]">{entry.notes || '—'}</td>
-                </tr>
-              )}
+              colSpan={6}
+              renderRow={(entry: any) => {
+                const rawDate = entry.logged_at || entry.created_at;
+                const dateStr = rawDate && !isNaN(new Date(rawDate).getTime())
+                  ? new Date(rawDate).toLocaleString('en-PH')
+                  : '—';
+                const prodName = entry.product_name || entry.product?.name || (entry.sku ? entry.sku : `Product #${entry.product_id}`);
+                const mType = entry.movement_type || entry.type || 'ADJUSTMENT';
+                const delta = Number(entry.change_qty ?? entry.quantity_delta ?? 0);
+                const prev = entry.previous_balance ?? entry.balance_before ?? '—';
+                const next = entry.new_balance ?? entry.balance_after ?? '—';
+
+                return (
+                  <tr key={entry.id}>
+                    <td className="text-gray-500 text-xs whitespace-nowrap">
+                      {dateStr}
+                    </td>
+                    <td>
+                      <strong className="text-gray-900">{prodName}</strong>
+                      {entry.sku && <div className="text-[10px] text-gray-400 font-mono">{entry.sku}</div>}
+                    </td>
+                    <td>
+                      <span
+                        className={`badge text-[11px] font-bold ${
+                          mType === 'SALE' || mType === 'ORDER_RESERVED'
+                            ? 'badge-warning'
+                            : mType === 'RESTOCK' || mType === 'VOID_RESTORE'
+                            ? 'badge-success'
+                            : 'badge-info'
+                        }`}
+                      >
+                        {mType}
+                      </span>
+                    </td>
+                    <td className={`font-bold ${delta > 0 ? 'text-emerald-600' : delta < 0 ? 'text-amber-700' : 'text-gray-700'}`}>
+                      {delta > 0 ? `+${delta}` : delta}
+                    </td>
+                    <td className="text-gray-600 font-mono text-xs whitespace-nowrap">
+                      {prev} → {next}
+                    </td>
+                    <td className="text-gray-500 text-xs truncate max-w-[260px]">{entry.notes || '—'}</td>
+                  </tr>
+                );
+              }}
               renderSkeletonRow={(index) => <LedgerSkeletonRow key={index} />}
               emptyRow={
                 <tr>
-                  <td colSpan={7} className="text-center py-8 text-gray-400">
+                  <td colSpan={6} className="text-center py-8 text-gray-400">
                     No movement records recorded yet.
                   </td>
                 </tr>

@@ -89,13 +89,18 @@ export class InventoryService {
       sku: m.product.sku,
       product_name: m.product.name,
       movement_type: m.movementType,
+      type: m.movementType,
       change_qty: m.quantityChange,
+      quantity_delta: m.quantityChange,
       previous_balance: m.previousBalance,
+      balance_before: m.previousBalance,
       new_balance: m.newBalance,
+      balance_after: m.newBalance,
       user_id: m.userId,
       user_name: m.user.name,
       notes: m.notes,
-      logged_at: m.createdAt.toISOString()
+      logged_at: m.createdAt.toISOString(),
+      created_at: m.createdAt.toISOString()
     }));
   }
 
