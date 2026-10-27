@@ -36,6 +36,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
   // Per-product quantity selector
   const [quantities, setQuantities] = useState<Record<number, number>>({});
   const [addedAnimation, setAddedAnimation] = useState<number | null>(null);
+  const [quickAddedKey, setQuickAddedKey] = useState<string | null>(null);
 
   // Modals
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
@@ -75,24 +76,72 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
     }
   };
 
-  const handleQuickRefill = (keyword: string) => {
+  const handleQuickRefill = (targetKey: 'SLIM_REFILL' | 'ROUND_REFILL' | 'SLIM_CONTAINER' | 'ROUND_CONTAINER') => {
     if (!user) {
       navigate('/login', { state: { from: location } });
       return;
     }
-    const match = products?.find((p: any) =>
-      p.name.toLowerCase().includes(keyword.toLowerCase()) && p.stock > 0
-    );
-    if (match && onAddToCart) {
+
+    const candidateMatchers: Record<string, ((p: any) => boolean)[]> = {
+      SLIM_REFILL: [
+        (p: any) => p.sku === 'REF-SLIM-5GAL',
+        (p: any) => (p.name?.toLowerCase().includes('refill') || p.sku?.toLowerCase().includes('ref')) && (p.volume_label?.toLowerCase().includes('slim') || p.name?.toLowerCase().includes('slim')),
+        (p: any) => p.name?.toLowerCase().includes('mineral refill'),
+        (p: any) => p.name?.toLowerCase().includes('refill')
+      ],
+      ROUND_REFILL: [
+        (p: any) => p.sku === 'REF-ROUND-5GAL',
+        (p: any) => (p.name?.toLowerCase().includes('refill') || p.sku?.toLowerCase().includes('ref')) && (p.volume_label?.toLowerCase().includes('round') || p.name?.toLowerCase().includes('round')),
+        (p: any) => p.sku === 'REF-SLIM-5GAL',
+        (p: any) => p.name?.toLowerCase().includes('mineral refill'),
+        (p: any) => p.name?.toLowerCase().includes('refill')
+      ],
+      SLIM_CONTAINER: [
+        (p: any) => p.sku === 'NEW-SLIM-5GAL',
+        (p: any) => p.name?.toLowerCase().includes('slim') && (p.name?.toLowerCase().includes('bottle') || p.name?.toLowerCase().includes('container') || p.name?.toLowerCase().includes('water')),
+        (p: any) => p.sku?.toLowerCase().includes('slim')
+      ],
+      ROUND_CONTAINER: [
+        (p: any) => p.sku === 'NEW-ROUND-5GAL',
+        (p: any) => p.name?.toLowerCase().includes('round') && (p.name?.toLowerCase().includes('bottle') || p.name?.toLowerCase().includes('container') || p.name?.toLowerCase().includes('water')),
+        (p: any) => p.sku?.toLowerCase().includes('round')
+      ]
+    };
+
+    const matchers = candidateMatchers[targetKey] || [];
+    let match: any = null;
+    for (const matcher of matchers) {
+      const found = products?.find(matcher);
+      if (found) {
+        match = found;
+        break;
+      }
+    }
+
+    if (!match) {
+      alert('This refill product is currently not available in station inventory.');
+      return;
+    }
+
+    if (match.stock <= 0) {
+      alert(`${match.name} is currently out of stock.`);
+      return;
+    }
+
+    if (onAddToCart) {
       onAddToCart(match, 1);
       setAddedAnimation(match.id);
-      setTimeout(() => setAddedAnimation(null), 1200);
+      setQuickAddedKey(targetKey);
+      setTimeout(() => {
+        setAddedAnimation(null);
+        setQuickAddedKey(null);
+      }, 1500);
     }
   };
 
   // Active customer order (if logged in)
   const activeOrder = customerOrders?.find((o: any) =>
-    o.status === 'PENDING' || o.status === 'ACCEPTED' || o.status === 'OUTFORDELIVERY'
+    o.status === 'PENDING' || o.status === 'ACCEPTED' || o.status === 'PREPARING' || o.status === 'READY_FOR_PICKUP' || o.status === 'OUTFORDELIVERY'
   );
 
   return (
@@ -213,11 +262,23 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleQuickRefill('Slim Refill')}
-                    className="px-3 py-2 rounded-xl bg-[#1565c0] hover:bg-[#0b3d91] text-white text-xs font-bold shadow-xs transition-all flex items-center gap-1 shrink-0"
+                    onClick={() => handleQuickRefill('SLIM_REFILL')}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold shadow-xs transition-all flex items-center gap-1 shrink-0 ${
+                      quickAddedKey === 'SLIM_REFILL'
+                        ? 'bg-[#2e7d32] text-white'
+                        : 'bg-[#1565c0] hover:bg-[#0b3d91] text-white'
+                    }`}
                     title="Quick Add 5-Gal Slim Refill"
                   >
-                    <Plus className="w-3.5 h-3.5" /> Add
+                    {quickAddedKey === 'SLIM_REFILL' ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" /> Added
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-3.5 h-3.5" /> Add
+                      </>
+                    )}
                   </button>
                 </div>
 
@@ -233,11 +294,23 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleQuickRefill('Round Refill')}
-                    className="px-3 py-2 rounded-xl bg-[#1565c0] hover:bg-[#0b3d91] text-white text-xs font-bold shadow-xs transition-all flex items-center gap-1 shrink-0"
+                    onClick={() => handleQuickRefill('ROUND_REFILL')}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold shadow-xs transition-all flex items-center gap-1 shrink-0 ${
+                      quickAddedKey === 'ROUND_REFILL'
+                        ? 'bg-[#2e7d32] text-white'
+                        : 'bg-[#1565c0] hover:bg-[#0b3d91] text-white'
+                    }`}
                     title="Quick Add 5-Gal Round Refill"
                   >
-                    <Plus className="w-3.5 h-3.5" /> Add
+                    {quickAddedKey === 'ROUND_REFILL' ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" /> Added
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-3.5 h-3.5" /> Add
+                      </>
+                    )}
                   </button>
                 </div>
 
@@ -253,11 +326,23 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleQuickRefill('Slim Container')}
-                    className="px-3 py-2 rounded-xl bg-white text-[#1565c0] hover:bg-[#e3f2fd] border border-[#bbdefb] text-xs font-bold shadow-xs transition-all flex items-center gap-1 shrink-0"
+                    onClick={() => handleQuickRefill('SLIM_CONTAINER')}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold shadow-xs transition-all flex items-center gap-1 shrink-0 ${
+                      quickAddedKey === 'SLIM_CONTAINER'
+                        ? 'bg-[#2e7d32] text-white'
+                        : 'bg-white text-[#1565c0] hover:bg-[#e3f2fd] border border-[#bbdefb]'
+                    }`}
                     title="Add New Slim Container"
                   >
-                    <Plus className="w-3.5 h-3.5" /> Bottle
+                    {quickAddedKey === 'SLIM_CONTAINER' ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" /> Added
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-3.5 h-3.5" /> Bottle
+                      </>
+                    )}
                   </button>
                 </div>
 
@@ -273,11 +358,23 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleQuickRefill('Round Container')}
-                    className="px-3 py-2 rounded-xl bg-white text-[#1565c0] hover:bg-[#e3f2fd] border border-[#bbdefb] text-xs font-bold shadow-xs transition-all flex items-center gap-1 shrink-0"
+                    onClick={() => handleQuickRefill('ROUND_CONTAINER')}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold shadow-xs transition-all flex items-center gap-1 shrink-0 ${
+                      quickAddedKey === 'ROUND_CONTAINER'
+                        ? 'bg-[#2e7d32] text-white'
+                        : 'bg-white text-[#1565c0] hover:bg-[#e3f2fd] border border-[#bbdefb]'
+                    }`}
                     title="Add New Round Container"
                   >
-                    <Plus className="w-3.5 h-3.5" /> Bottle
+                    {quickAddedKey === 'ROUND_CONTAINER' ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" /> Added
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-3.5 h-3.5" /> Bottle
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
@@ -310,13 +407,13 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
                         <div className="grid grid-cols-4 gap-1 text-center text-[9px] font-bold mb-1">
                           <span className="text-[#1565c0]">Placed</span>
                           <span className={activeOrder.status !== 'PENDING' ? 'text-[#1565c0]' : 'text-slate-300'}>
-                            Accepted
+                            Processing
                           </span>
-                          <span className={activeOrder.status === 'OUTFORDELIVERY' ? 'text-[#1565c0]' : 'text-slate-300'}>
-                            On Way
+                          <span className={activeOrder.status === 'READY_FOR_PICKUP' || activeOrder.status === 'OUTFORDELIVERY' || activeOrder.status === 'COMPLETED' ? 'text-[#1565c0]' : 'text-slate-300'}>
+                            Ready
                           </span>
                           <span className={activeOrder.status === 'COMPLETED' ? 'text-[#2e7d32]' : 'text-slate-300'}>
-                            Delivered
+                            Done
                           </span>
                         </div>
                         <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden flex">
@@ -326,9 +423,9 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
                               width:
                                 activeOrder.status === 'COMPLETED'
                                   ? '100%'
-                                  : activeOrder.status === 'OUTFORDELIVERY'
+                                  : activeOrder.status === 'READY_FOR_PICKUP' || activeOrder.status === 'OUTFORDELIVERY'
                                   ? '75%'
-                                  : activeOrder.status === 'ACCEPTED'
+                                  : activeOrder.status === 'ACCEPTED' || activeOrder.status === 'PREPARING'
                                   ? '50%'
                                   : '25%'
                             }}

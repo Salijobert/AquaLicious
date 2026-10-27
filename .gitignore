@@ -22,3 +22,5 @@ mockups-contact.png
 tests/screenshots/
 tools/audit_results.json
 tools/staff_occurrences.json
+
+.vercel
