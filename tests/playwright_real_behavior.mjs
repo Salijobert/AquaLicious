@@ -352,11 +352,12 @@ try {
   await hashPage.fill('input[name="username"]', 'test-owner');
   await hashPage.fill('input[name="password"]', adminPassword);
   await hashPage.click('button[type="submit"]');
-  await hashPage.waitForTimeout(800);
+  await hashPage.waitForURL('**/#/**');
+  await hashPage.waitForSelector('.sidebar-nav', { timeout: 5000 }).catch(() => {});
 
   // Navigate to #/admin/products
   await hashPage.goto(`${baseUrl}/#/admin/products`);
-  await hashPage.waitForTimeout(800);
+  await hashPage.waitForSelector('table', { timeout: 5000 }).catch(() => {});
   report(hashPage.url().includes('#/admin/products'), 'HashRouter resolves #/admin/products for Admin');
 
   await hashPage.screenshot({ path: 'tests/screenshots/hashrouter_admin_products.png' });

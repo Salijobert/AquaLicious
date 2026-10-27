@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useReports, useSales, useProducts } from '../api/client.js';
 import { useAuth } from '../auth/AuthContext.js';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { subDays, differenceInDays } from 'date-fns';
 import { Printer, TrendingUp, TrendingDown, Minus, Calendar, DollarSign, Award, ShoppingBag } from 'lucide-react';
+import { VirtualTableBody, RevenueSkeletonRow } from '../components/virtual/index.js';
 
 export const ReportsPage: React.FC = () => {
   const { role } = useAuth();
@@ -12,6 +13,7 @@ export const ReportsPage: React.FC = () => {
 
   const [startDate, setStartDate] = useState<Date>(subDays(new Date(), 30));
   const [endDate, setEndDate] = useState<Date>(new Date());
+  const seriesContainerRef = useRef<HTMLDivElement>(null);
 
   const daysDiff = Math.max(7, Math.min(365, differenceInDays(endDate, startDate) || 30));
   const { data: report, error } = useReports(daysDiff);
@@ -215,11 +217,11 @@ export const ReportsPage: React.FC = () => {
       <div className="card">
         <div className="card-header">
           <span className="card-title">📋 Full Daily Revenue Series</span>
-          <span className="text-xs text-gray-500">Zero-sales days strictly preserved</span>
+          <span className="text-xs text-gray-500">Zero-sales days strictly preserved ({series.length} days)</span>
         </div>
-        <div className="overflow-x-auto max-h-[350px]">
+        <div ref={seriesContainerRef} className="overflow-x-auto overflow-y-auto max-h-[400px] rounded-xl border border-gray-100">
           <table>
-            <thead className="sticky top-0 bg-gray-50">
+            <thead className="sticky top-0 bg-gray-50 z-10 shadow-xs">
               <tr>
                 <th>Date</th>
                 <th>Transactions</th>
@@ -228,30 +230,34 @@ export const ReportsPage: React.FC = () => {
                 <th>Average / Sale</th>
               </tr>
             </thead>
-            <tbody>
-              {series.length > 0 ? (
-                series.map((row: any) => {
-                  const rev = Number(row.revenue);
-                  const prof = Number(row.profit || 0);
-                  const tx = Number(row.transactions);
-                  return (
-                    <tr key={row.date}>
-                      <td className="font-semibold text-gray-800">{row.date}</td>
-                      <td>{tx}</td>
-                      <td className="font-bold text-gray-900">₱{rev.toFixed(2)}</td>
-                      <td className="text-emerald-600 font-semibold">₱{prof.toFixed(2)}</td>
-                      <td className="text-gray-600">₱{tx > 0 ? (rev / tx).toFixed(2) : '0.00'}</td>
-                    </tr>
-                  );
-                })
-              ) : (
+            <VirtualTableBody
+              items={series}
+              containerRef={seriesContainerRef}
+              rowHeight={48}
+              colSpan={5}
+              renderRow={(row: any) => {
+                const rev = Number(row.revenue);
+                const prof = Number(row.profit || 0);
+                const tx = Number(row.transactions);
+                return (
+                  <tr key={row.date}>
+                    <td className="font-semibold text-gray-800">{row.date}</td>
+                    <td>{tx}</td>
+                    <td className="font-bold text-gray-900">₱{rev.toFixed(2)}</td>
+                    <td className="text-emerald-600 font-semibold">₱{prof.toFixed(2)}</td>
+                    <td className="text-gray-600">₱{tx > 0 ? (rev / tx).toFixed(2) : '0.00'}</td>
+                  </tr>
+                );
+              }}
+              renderSkeletonRow={(index) => <RevenueSkeletonRow key={index} />}
+              emptyRow={
                 <tr>
                   <td colSpan={5} className="text-center py-8 text-gray-400">
                     No sales recorded in the selected period.
                   </td>
                 </tr>
-              )}
-            </tbody>
+              }
+            />
           </table>
         </div>
       </div>

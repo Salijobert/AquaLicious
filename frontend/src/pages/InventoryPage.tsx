@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useInventory, useAdjustStock } from '../api/client.js';
 import { useAuth } from '../auth/AuthContext.js';
 import { Calculator, Plus, History, AlertTriangle } from 'lucide-react';
 import { RopCalculatorModal } from '../components/RopCalculatorModal.js';
+import { VirtualTableBody, LedgerSkeletonRow } from '../components/virtual/index.js';
 
 export const InventoryPage: React.FC = () => {
   const { role } = useAuth();
@@ -18,6 +19,7 @@ export const InventoryPage: React.FC = () => {
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [currentCategory, setCurrentCategory] = useState<string>('All');
+  const ledgerContainerRef = useRef<HTMLDivElement>(null);
 
   const categories = ['All', 'Slim', 'Round', 'Purified', 'Mineral'];
   const filteredInventory = inventory?.filter((p: any) =>
@@ -178,11 +180,11 @@ export const InventoryPage: React.FC = () => {
       <div className="card">
         <div className="card-header">
           <span className="card-title">📜 Immutable Stock Movement Ledger</span>
-          <span className="text-xs text-gray-500">Historical Audit Records</span>
+          <span className="text-xs text-gray-500">Historical Audit Records ({ledger?.length || 0})</span>
         </div>
-        <div className="overflow-x-auto max-h-[350px]">
+        <div ref={ledgerContainerRef} className="overflow-x-auto overflow-y-auto max-h-[380px] rounded-xl border border-gray-100">
           <table>
-            <thead className="sticky top-0 bg-gray-50">
+            <thead className="sticky top-0 bg-gray-50 z-10 shadow-xs">
               <tr>
                 <th>Date & Time</th>
                 <th>Product</th>
@@ -193,47 +195,51 @@ export const InventoryPage: React.FC = () => {
                 <th>Notes</th>
               </tr>
             </thead>
-            <tbody>
-              {ledger && ledger.length > 0 ? (
-                ledger.map((entry: any) => (
-                  <tr key={entry.id}>
-                    <td className="text-gray-500">
-                      {new Date(entry.created_at).toLocaleString('en-PH')}
-                    </td>
-                    <td>
-                      <strong>{entry.product?.name || entry.product_id}</strong>
-                    </td>
-                    <td>
-                      <span
-                        className={`badge ${
-                          entry.type === 'SALE'
-                            ? 'badge-warning'
-                            : entry.type === 'RESTOCK'
-                            ? 'badge-success'
-                            : 'badge-info'
-                        }`}
-                      >
-                        {entry.type}
-                      </span>
-                    </td>
-                    <td className="font-bold">
-                      {entry.quantity_delta > 0 ? `+${entry.quantity_delta}` : entry.quantity_delta}
-                    </td>
-                    <td className="text-gray-600">
-                      {entry.balance_before} → {entry.balance_after}
-                    </td>
-                    <td>{entry.actor?.name || entry.actor_id || 'System'}</td>
-                    <td className="text-gray-500 truncate max-w-[200px]">{entry.notes || '—'}</td>
-                  </tr>
-                ))
-              ) : (
+            <VirtualTableBody
+              items={ledger}
+              containerRef={ledgerContainerRef}
+              rowHeight={52}
+              colSpan={7}
+              renderRow={(entry: any) => (
+                <tr key={entry.id}>
+                  <td className="text-gray-500">
+                    {new Date(entry.created_at).toLocaleString('en-PH')}
+                  </td>
+                  <td>
+                    <strong>{entry.product?.name || entry.product_id}</strong>
+                  </td>
+                  <td>
+                    <span
+                      className={`badge ${
+                        entry.type === 'SALE'
+                          ? 'badge-warning'
+                          : entry.type === 'RESTOCK'
+                          ? 'badge-success'
+                          : 'badge-info'
+                      }`}
+                    >
+                      {entry.type}
+                    </span>
+                  </td>
+                  <td className="font-bold">
+                    {entry.quantity_delta > 0 ? `+${entry.quantity_delta}` : entry.quantity_delta}
+                  </td>
+                  <td className="text-gray-600">
+                    {entry.balance_before} → {entry.balance_after}
+                  </td>
+                  <td>{entry.actor?.name || entry.actor_id || 'System'}</td>
+                  <td className="text-gray-500 truncate max-w-[200px]">{entry.notes || '—'}</td>
+                </tr>
+              )}
+              renderSkeletonRow={(index) => <LedgerSkeletonRow key={index} />}
+              emptyRow={
                 <tr>
                   <td colSpan={7} className="text-center py-8 text-gray-400">
                     No movement records recorded yet.
                   </td>
                 </tr>
-              )}
-            </tbody>
+              }
+            />
           </table>
         </div>
       </div>

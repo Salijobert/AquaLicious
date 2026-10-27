@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useUsers, useCreateUser, useUpdateUser } from '../api/client.js';
 import { UserPlus, Shield, UserCheck, UserX } from 'lucide-react';
+import { VirtualTableBody, UserSkeletonRow } from '../components/virtual/index.js';
 
 export const UsersPage: React.FC = () => {
   const { data: users, error } = useUsers();
@@ -12,6 +13,7 @@ export const UsersPage: React.FC = () => {
   const [username, setUsername] = useState('');
   const [role, setRole] = useState('Administrator');
   const [modalError, setModalError] = useState<string | null>(null);
+  const usersContainerRef = useRef<HTMLDivElement>(null);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,9 +66,9 @@ export const UsersPage: React.FC = () => {
           <span className="card-title">👥 User Accounts</span>
           <span className="text-xs text-gray-500">{users?.length || 0} user accounts</span>
         </div>
-        <div className="overflow-x-auto">
+        <div ref={usersContainerRef} className="overflow-x-auto overflow-y-auto max-h-[500px] rounded-xl border border-gray-100">
           <table>
-            <thead>
+            <thead className="sticky top-0 bg-gray-50 z-10 shadow-xs">
               <tr>
                 <th>User / Name</th>
                 <th>Username</th>
@@ -76,8 +78,12 @@ export const UsersPage: React.FC = () => {
                 <th>Action</th>
               </tr>
             </thead>
-            <tbody>
-              {users?.map((u: any) => (
+            <VirtualTableBody
+              items={users}
+              containerRef={usersContainerRef}
+              rowHeight={56}
+              colSpan={6}
+              renderRow={(u: any) => (
                 <tr key={u.id}>
                   <td>
                     <div className="font-bold text-gray-900">{u.name}</div>
@@ -116,8 +122,16 @@ export const UsersPage: React.FC = () => {
                     </button>
                   </td>
                 </tr>
-              ))}
-            </tbody>
+              )}
+              renderSkeletonRow={(index) => <UserSkeletonRow key={index} />}
+              emptyRow={
+                <tr>
+                  <td colSpan={6} className="text-center py-8 text-gray-400">
+                    No user accounts found.
+                  </td>
+                </tr>
+              }
+            />
           </table>
         </div>
       </div>

@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useOrders, usePatchOrder, useConfig } from '../api/client.js';
 import { useAuth } from '../auth/AuthContext.js';
 import { CheckCircle, XCircle, Clock, Truck, QrCode } from 'lucide-react';
+import { VirtualCardList, OrderCardSkeleton } from '../components/virtual/index.js';
 
 export const OrdersPage: React.FC = () => {
   const { role } = useAuth();
@@ -14,6 +15,7 @@ export const OrdersPage: React.FC = () => {
   const [referenceNumber, setReferenceNumber] = useState('');
   const [proofBase64, setProofBase64] = useState('');
   const [claimError, setClaimError] = useState<string | null>(null);
+  const ordersContainerRef = useRef<HTMLDivElement>(null);
 
   const handleClaimPayment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,13 +98,22 @@ export const OrdersPage: React.FC = () => {
         </div>
       </div>
 
-      {orders?.length === 0 ? (
-        <div className="card text-center py-16 text-gray-400">
-          <p className="text-sm font-semibold">No active water orders found.</p>
-        </div>
-      ) : (
-        <div className="grid gap-4">
-          {orders?.map((order: any) => (
+      <div
+        ref={ordersContainerRef}
+        className="overflow-y-auto max-h-[calc(100vh-220px)] min-h-[400px] pr-1.5 rounded-2xl"
+      >
+        <VirtualCardList
+          items={orders}
+          containerRef={ordersContainerRef}
+          itemHeight={210}
+          className="space-y-4"
+          emptyContent={
+            <div className="card text-center py-16 text-gray-400">
+              <p className="text-sm font-semibold">No active water orders found.</p>
+            </div>
+          }
+          renderSkeletonItem={(index) => <OrderCardSkeleton key={index} />}
+          renderItem={(order: any) => (
             <div
               key={order.id}
               className="order card bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col md:flex-row justify-between gap-4"
@@ -247,9 +258,9 @@ export const OrdersPage: React.FC = () => {
                 </div>
               </div>
             </div>
-          ))}
-        </div>
-      )}
+          )}
+        />
+      </div>
 
       {/* QR Proof Submission Modal */}
       {claimOrder && (

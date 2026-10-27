@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useProducts, useCheckout, useSales } from '../api/client.js';
 import { ShoppingCart, Plus, Minus, Trash2, Search, AlertCircle } from 'lucide-react';
 import { ReceiptModal } from '../components/ReceiptModal.js';
 import { VoidModal } from '../components/VoidModal.js';
+import { VirtualTableBody, SalesHistorySkeletonRow } from '../components/virtual/index.js';
 
 export const SalesPage: React.FC = () => {
   const { data: products } = useProducts();
@@ -16,6 +17,7 @@ export const SalesPage: React.FC = () => {
   const [voidingSale, setVoidingSale] = useState<any | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  const salesContainerRef = useRef<HTMLDivElement>(null);
 
   // Stats calculation
   const totalSales = salesHistory?.length || 0;
@@ -339,9 +341,9 @@ export const SalesPage: React.FC = () => {
           <span className="card-title">🧾 Walk-in POS Sales History</span>
           <span className="text-xs text-gray-500">{salesHistory?.length || 0} transactions</span>
         </div>
-        <div className="overflow-x-auto">
+        <div ref={salesContainerRef} className="overflow-x-auto overflow-y-auto max-h-[480px] rounded-xl border border-gray-100">
           <table>
-            <thead>
+            <thead className="sticky top-0 bg-gray-50 z-10 shadow-xs">
               <tr>
                 <th>Order #</th>
                 <th>Cashier / User</th>
@@ -351,8 +353,12 @@ export const SalesPage: React.FC = () => {
                 <th>Action</th>
               </tr>
             </thead>
-            <tbody>
-              {salesHistory?.map((sale: any) => (
+            <VirtualTableBody
+              items={salesHistory}
+              containerRef={salesContainerRef}
+              rowHeight={52}
+              colSpan={6}
+              renderRow={(sale: any) => (
                 <tr key={sale.id} className={sale.status === 'VOIDED' ? 'opacity-60 line-through' : ''}>
                   <td className="font-mono font-bold text-[#1565c0]">#{sale.order_number}</td>
                   <td>{sale.cashier}</td>
@@ -380,8 +386,16 @@ export const SalesPage: React.FC = () => {
                     )}
                   </td>
                 </tr>
-              ))}
-            </tbody>
+              )}
+              renderSkeletonRow={(index) => <SalesHistorySkeletonRow key={index} />}
+              emptyRow={
+                <tr>
+                  <td colSpan={6} className="text-center py-8 text-gray-400">
+                    No sales transactions recorded yet.
+                  </td>
+                </tr>
+              }
+            />
           </table>
         </div>
       </div>
