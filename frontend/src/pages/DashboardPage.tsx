@@ -159,9 +159,9 @@ export const DashboardPage: React.FC = () => {
           </p>
         </div>
 
-        {/* Segmented Time Period Filter Pill Bar */}
+        {/* Segmented Time Period Filter Pill Bar (AquaLicious Theme) */}
         <div className="flex flex-wrap items-center gap-3">
-          <div className="bg-white rounded-2xl sm:rounded-full border border-slate-200/90 p-1 sm:p-1.5 shadow-xs inline-flex items-center gap-0.5 max-w-full overflow-x-auto scrollbar-none">
+          <div className="bg-white/95 rounded-full border border-[#bbdefb] p-1 shadow-xs inline-flex items-center gap-1 max-w-full overflow-x-auto scrollbar-none">
             {[
               { id: 'today', label: 'Today' },
               { id: 'week', label: 'This Week' },
@@ -176,10 +176,10 @@ export const DashboardPage: React.FC = () => {
                   key={tab.id}
                   type="button"
                   onClick={() => setPeriod(tab.id as Period)}
-                  className={`px-3.5 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer rounded-xl sm:rounded-full ${
+                  className={`px-4 py-1.5 sm:py-2 text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer rounded-full ${
                     isActive
-                      ? 'bg-[#6ea245] text-white font-bold shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 font-semibold'
+                      ? 'bg-[#1565c0] hover:bg-[#0b3d91] text-white font-bold shadow-xs'
+                      : 'text-[#0b3d91] hover:text-[#0b3d91] hover:bg-[#e3f2fd] font-semibold'
                   }`}
                 >
                   {tab.label}
@@ -190,20 +190,20 @@ export const DashboardPage: React.FC = () => {
 
           {/* Custom Date Pickers */}
           {period === 'custom' && (
-            <div className="flex items-center gap-2 bg-white px-3.5 py-1.5 rounded-2xl border border-slate-200/90 shadow-xs text-xs animate-in fade-in">
-              <span className="text-slate-500 font-semibold">From:</span>
+            <div className="flex items-center gap-2 bg-white/95 px-4 py-1.5 rounded-full border border-[#bbdefb] shadow-xs text-xs animate-in fade-in">
+              <span className="text-[#1565c0] font-bold">From:</span>
               <input
                 type="date"
                 value={customStart}
                 onChange={(e) => setCustomStart(e.target.value)}
-                className="border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 font-mono focus:outline-none focus:border-[#6ea245]"
+                className="border border-[#bbdefb] rounded-lg px-2.5 py-1 text-xs text-slate-800 font-mono focus:outline-none focus:border-[#1565c0] focus:ring-1 focus:ring-[#1565c0]"
               />
-              <span className="text-slate-500 font-semibold">To:</span>
+              <span className="text-[#1565c0] font-bold">To:</span>
               <input
                 type="date"
                 value={customEnd}
                 onChange={(e) => setCustomEnd(e.target.value)}
-                className="border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 font-mono focus:outline-none focus:border-[#6ea245]"
+                className="border border-[#bbdefb] rounded-lg px-2.5 py-1 text-xs text-slate-800 font-mono focus:outline-none focus:border-[#1565c0] focus:ring-1 focus:ring-[#1565c0]"
               />
             </div>
           )}
