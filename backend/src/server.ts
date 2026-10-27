@@ -70,6 +70,8 @@ export function createApp() {
   app.use(express.static(clientDist));
   app.use('/frontend/pages/assets', express.static(path.join(clientDist, 'assets')));
   app.use('/pages/assets', express.static(path.join(clientDist, 'assets')));
+  app.use('/deliverables', express.static(path.join(clientDist, 'deliverables')));
+  app.use('/deliverables', express.static(path.resolve(__dirname, '../../deliverables')));
   app.use((req: Request, res: Response, next: NextFunction) => {
     if (req.path.includes('/assets/')) {
       const assetName = path.basename(req.path);

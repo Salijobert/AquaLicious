@@ -16,7 +16,8 @@ frontend/dist/
 .tools/
 runtime/
 private-signing/
-deliverables/
+/deliverables/
+!frontend/public/deliverables/
 paper-extracted.txt
 mockups-contact.png
 tests/screenshots/
