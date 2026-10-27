@@ -505,7 +505,14 @@ export class OrderService {
         }
 
         // Unverified QR orders cannot enter fulfillment
-        if (newStatus === OrderStatus.CONFIRMED &&
+        const enteringFulfillment: OrderStatus[] = [
+          OrderStatus.CONFIRMED,
+          OrderStatus.PREPARING,
+          OrderStatus.READY_FOR_PICKUP,
+          OrderStatus.OUT_FOR_DELIVERY
+        ];
+
+        if (enteringFulfillment.includes(newStatus) &&
           (order.paymentMethod === PaymentMethod.GCASH_QR || order.paymentMethod === PaymentMethod.MAYA_QR) &&
           order.paymentStatus !== PaymentStatus.VERIFIED) {
           throw { status: 409, message: 'Unverified QR cannot enter fulfillment' };
@@ -639,9 +646,13 @@ export class OrderService {
         (async () => {
           try {
             if (order.user?.email) {
-              let friendlyStatus = newStatus.toString();
-              if (newStatus === OrderStatus.OUT_FOR_DELIVERY) {
-                friendlyStatus = order.orderType === OrderType.DELIVERY ? 'OUT FOR DELIVERY' : 'READY FOR PICKUP';
+              let friendlyStatus = newStatus.toString().replace(/_/g, ' ');
+              if (newStatus === OrderStatus.READY_FOR_PICKUP) {
+                friendlyStatus = 'READY FOR PICKUP';
+              } else if (newStatus === OrderStatus.OUT_FOR_DELIVERY) {
+                friendlyStatus = 'OUT FOR DELIVERY';
+              } else if (newStatus === OrderStatus.PREPARING) {
+                friendlyStatus = 'PREPARING';
               }
               await Mailer.sendOrderStatusUpdate({
                 orderId: updated.id,

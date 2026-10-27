@@ -129,10 +129,16 @@ export const OrdersPage: React.FC = () => {
                         ? 'badge-success'
                         : order.status === 'CANCELLED'
                         ? 'badge-danger'
+                        : order.status === 'READY_FOR_PICKUP'
+                        ? 'badge-info'
+                        : order.status === 'OUT_FOR_DELIVERY'
+                        ? 'badge-info'
+                        : order.status === 'PREPARING'
+                        ? 'badge-primary'
                         : 'badge-warning'
                     }`}
                   >
-                    {order.status}
+                    {order.status.replace(/_/g, ' ')}
                   </span>
                   <span className="badge badge-info flex items-center gap-1 font-semibold">
                     <Truck className="w-3 h-3" /> {order.fulfillment}
@@ -209,32 +215,55 @@ export const OrdersPage: React.FC = () => {
                   {isAdmin && (
                     <div className="flex flex-wrap gap-1.5 w-full">
                       {order.status === 'PENDING' && (
-                        <button
-                          onClick={() => updateStatus(order.id, 'PREPARING')}
-                          className="btn btn-outline btn-xs flex-1"
-                        >
-                          Prepare
-                        </button>
+                        <>
+                          <button
+                            onClick={() => updateStatus(order.id, 'PREPARING')}
+                            className="btn btn-outline btn-xs flex-1"
+                          >
+                            Prepare
+                          </button>
+                          {order.fulfillment === 'PICKUP' ? (
+                            <button
+                              onClick={() => updateStatus(order.id, 'READY_FOR_PICKUP')}
+                              className="btn btn-info btn-xs flex-1 text-white"
+                            >
+                              Ready for Pickup
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => updateStatus(order.id, 'OUT_FOR_DELIVERY')}
+                              className="btn btn-info btn-xs flex-1 text-white"
+                            >
+                              Dispatch
+                            </button>
+                          )}
+                        </>
                       )}
                       {order.status === 'PREPARING' && (
-                        <button
-                          onClick={() =>
-                            updateStatus(
-                              order.id,
-                              order.fulfillment === 'DELIVERY' ? 'OUT_FOR_DELIVERY' : 'READY_FOR_PICKUP'
-                            )
-                          }
-                          className="btn btn-outline btn-xs flex-1"
-                        >
-                          {order.fulfillment === 'DELIVERY' ? 'Dispatch' : 'Ready'}
-                        </button>
+                        <>
+                          {order.fulfillment === 'DELIVERY' ? (
+                            <button
+                              onClick={() => updateStatus(order.id, 'OUT_FOR_DELIVERY')}
+                              className="btn btn-info btn-xs flex-1 text-white"
+                            >
+                              Dispatch
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => updateStatus(order.id, 'READY_FOR_PICKUP')}
+                              className="btn btn-info btn-xs flex-1 text-white"
+                            >
+                              Ready for Pickup
+                            </button>
+                          )}
+                        </>
                       )}
                       {(order.status === 'OUT_FOR_DELIVERY' || order.status === 'READY_FOR_PICKUP') && (
                         <button
                           onClick={() => updateStatus(order.id, 'COMPLETED', true)}
                           className="btn btn-primary btn-xs flex-1"
                         >
-                          Complete
+                          Complete Order
                         </button>
                       )}
                       {order.payment?.status === 'CLAIMED' && (
