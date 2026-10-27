@@ -101,7 +101,7 @@ export const Navbar: React.FC<NavbarProps> = ({ cartCount = 0, onOpenCart, onTog
           </button>
 
           {isNotifOpen && (
-            <div className="absolute right-0 top-11 w-80 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
+            <div className="absolute right-0 top-11 w-80 sm:w-96 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
               <div className="p-3 bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-900 flex justify-between items-center">
                 <span>Notifications ({notifCount})</span>
                 <button
@@ -111,23 +111,41 @@ export const Navbar: React.FC<NavbarProps> = ({ cartCount = 0, onOpenCart, onTog
                   Close
                 </button>
               </div>
-              <div className="max-h-72 overflow-y-auto divide-y divide-gray-100 text-xs">
-                {pendingOrders.map((o: any) => (
-                  <Link
-                    key={o.id}
-                    to="/orders"
-                    onClick={() => setIsNotifOpen(false)}
-                    className="p-3 hover:bg-blue-50 flex items-start gap-2 text-gray-800 block"
-                  >
-                    <span className="w-2 h-2 rounded-full bg-blue-500 mt-1 shrink-0" />
-                    <div>
-                      <div className="font-bold">🛒 New Order #{o.order_number}</div>
-                      <div className="text-[11px] text-gray-500">
-                        ₱{Number(o.total).toFixed(2)} · {o.fulfillment}
+              <div className="max-h-80 overflow-y-auto divide-y divide-gray-100 text-xs">
+                {pendingOrders.map((o: any) => {
+                  const itemsSummary = o.items && o.items.length > 0
+                    ? o.items.map((i: any) => `${i.product_name || 'Water'} × ${i.qty}`).join(', ')
+                    : 'Water Refill / Order';
+                  const customerName = o.user?.name || o.customer || 'Customer';
+
+                  return (
+                    <Link
+                      key={o.id}
+                      to="/orders"
+                      onClick={() => setIsNotifOpen(false)}
+                      className="p-3 hover:bg-blue-50 flex items-start gap-2.5 text-gray-800 block transition-colors"
+                    >
+                      <span className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-bold text-gray-900 leading-snug truncate" title={itemsSummary}>
+                          🛒 {itemsSummary}
+                        </div>
+                        <div className="text-[11px] text-gray-600 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                          <span className="font-semibold text-blue-700">{customerName}</span>
+                          <span>•</span>
+                          <span className="font-bold text-gray-900">₱{Number(o.total).toFixed(2)}</span>
+                          <span>•</span>
+                          <span className="bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded text-[10px] font-semibold">
+                            {o.fulfillment}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-gray-400 font-mono mt-0.5">
+                          #{o.order_number}
+                        </div>
                       </div>
-                    </div>
-                  </Link>
-                ))}
+                    </Link>
+                  );
+                })}
                 {lowStock.map((p: any) => (
                   <Link
                     key={p.id}
