@@ -9,7 +9,22 @@ import jwt from 'jsonwebtoken';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-dotenv.config();
+// Load .env from backend directory or project root
+const envPaths = [
+  path.resolve(__dirname, '../.env'),
+  path.resolve(__dirname, '../../.env'),
+  path.resolve(process.cwd(), 'backend/.env'),
+  path.resolve(process.cwd(), '.env')
+];
+for (const envPath of envPaths) {
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath });
+    break;
+  }
+}
+if (!process.env.PORT) {
+  dotenv.config();
+}
 
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -45,7 +60,7 @@ export const config = {
   adminFirebaseUids: parsedAdminUids,
   adminFirebaseUid: parsedAdminUids[0] || '',
   databaseUrl: process.env.DATABASE_URL || 'postgresql://postgres@localhost:5432/aqualicious_pg?schema=public',
-  corsOrigins: (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:8080,http://localhost:8090,https://localhost,capacitor://localhost')
+  corsOrigins: (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:8088,http://localhost:8090,https://localhost,capacitor://localhost,https://aqualicious.vercel.app,https://muscular-donator-uncloak.ngrok-free.dev')
     .split(',')
     .map(o => o.trim()),
   firebaseProjectId: process.env.FIREBASE_PROJECT_ID || 'aqualicious-723f9',
