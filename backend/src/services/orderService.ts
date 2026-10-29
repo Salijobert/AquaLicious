@@ -352,19 +352,68 @@ export class OrderService {
           throw { status: 404, message: 'Order not found' };
         }
 
-        const { reference_number, proof_base64 } = body;
-        if (!reference_number || !proof_base64) {
+        const { reference_number, proof_base64, filename, file_name } = body;
+        if (!reference_number || !proof_base64 || typeof proof_base64 !== 'string') {
           throw { status: 422, message: 'Reference number and proof image required' };
         }
 
-        // Verify image base64 format (JPEG or PNG)
-        const isImage = proof_base64.startsWith('data:image/') ||
-          proof_base64.startsWith('iVBORw0KGgo') || // PNG magic bytes
-          proof_base64.startsWith('/9j/'); // JPEG magic bytes
-
-        if (!isImage) {
-          throw { status: 422, message: 'Non-image payment proof rejected' };
+        // 1. Double extension and suspicious filename check
+        const testFilename = (filename || file_name || '').toLowerCase().trim();
+        if (testFilename) {
+          const parts = testFilename.split('.');
+          if (parts.length > 2) {
+            throw { status: 422, message: 'Double extensions or suspicious file names are rejected' };
+          }
+          const ext = parts[parts.length - 1];
+          if (!['jpg', 'jpeg', 'png'].includes(ext)) {
+            throw { status: 422, message: 'Invalid file extension: must be .jpg, .jpeg, or .png' };
+          }
         }
+
+        // 2. Reject SVG or XML indicators explicitly
+        const lowerProof = proof_base64.toLowerCase();
+        if (
+          lowerProof.includes('image/svg') ||
+          lowerProof.includes('<svg') ||
+          lowerProof.includes('<?xml') ||
+          lowerProof.includes('<!doctype')
+        ) {
+          throw { status: 422, message: 'SVG and vector formats are strictly rejected' };
+        }
+
+        // 3. Extract raw base64 data and decode buffer
+        const commaIdx = proof_base64.indexOf(',');
+        const rawBase64 = commaIdx !== -1 ? proof_base64.slice(commaIdx + 1) : proof_base64;
+
+        let buffer: Buffer;
+        try {
+          buffer = Buffer.from(rawBase64, 'base64');
+        } catch {
+          throw { status: 422, message: 'Malformed base64 payment proof' };
+        }
+
+        if (buffer.length === 0) {
+          throw { status: 422, message: 'Payment proof image is empty' };
+        }
+
+        // 4. Enforce 5MB file size limit
+        if (buffer.length > 5 * 1024 * 1024) {
+          throw { status: 422, message: 'Payment proof exceeds 5MB size limit' };
+        }
+
+        // 5. Strict Magic Byte Verification (JPEG and PNG only)
+        const isJpeg = buffer.length >= 3 &&
+          buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF;
+        const isPng = buffer.length >= 8 &&
+          buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47 &&
+          buffer[4] === 0x0D && buffer[5] === 0x0A && buffer[6] === 0x1A && buffer[7] === 0x0A;
+
+        if (!isJpeg && !isPng) {
+          throw { status: 422, message: 'Invalid image format: must be valid JPEG or PNG verified by magic bytes' };
+        }
+
+        const safeMime = isJpeg ? 'image/jpeg' : 'image/png';
+        const normalizedProof = `data:${safeMime};base64,${rawBase64}`;
 
         // Check reference uniqueness across claims
         const refConflict = await prisma.salesOrder.findFirst({
@@ -382,7 +431,7 @@ export class OrderService {
           where: { id },
           data: {
             paymentReference: sanitize(reference_number),
-            proofBase64: proof_base64,
+            proofBase64: normalizedProof,
             paymentStatus: PaymentStatus.SUBMITTED
           }
         });

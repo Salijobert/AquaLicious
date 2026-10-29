@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 const base=process.env.AQ_TEST_URL||'http://127.0.0.1:8088/backend/api';
 const second=process.env.AQ_TEST_URL_2||'http://127.0.0.1:8089/backend/api';
+const adminUsername=process.env.AQ_UI_USERNAME||'test-owner';
 const password=process.env.AQ_ADMIN_PASSWORD;
 if(!password)throw new Error('AQ_ADMIN_PASSWORD required; tests run only against a disposable database.');
 for(let i=0;i<30;i++){try{await fetch(base+'/config.php');break;}catch{await new Promise(r=>setTimeout(r,100));}}
 let passed=0;
 function ok(condition,label){assert.ok(condition,label);console.log('PASS '+label);passed++;}
 async function req(path,data,method='GET',token='',url=base){const r=await fetch(url+'/'+path,{method,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:data?JSON.stringify(data):undefined});return {code:r.status,data:await r.json()};}
-const login=await req('auth.php',{username:'test-owner',password},'POST');ok(login.code===200,'Administrator sign-in');const a=login.data.token;
+const login=await req('auth.php',{username:adminUsername,password},'POST');ok(login.code===200,'Administrator sign-in');const a=login.data.token;
 const register=await req('auth.php',{action:'register',name:'Test Customer',username:'customer-'+randomUUID(),email:'admin-attempt-'+randomUUID()+'@example.com',password,role:'Administrator'},'POST');ok(register.code===403,'Public Administrator registration rejected');
 const noConsent=await req('auth.php',{action:'register',name:'No Consent Customer',username:'customer-'+randomUUID(),email:'noconsent-'+randomUUID()+'@example.com',password},'POST');ok(noConsent.code===422,'Registration without consent rejected');
 const customerEmail = 'customer-'+randomUUID()+'@example.com';
@@ -23,10 +24,25 @@ ok(fpNonExistent.code === 200 && fpAdmin.code === 200 && fpNonExistent.data.mess
 const preVerifyOrder = await req('orders.php', { items: [{ product_id: 1, qty: 1 }], fulfillment: 'PICKUP', method: 'CASH', request_key: randomUUID() }, 'POST', c);
 ok(preVerifyOrder.code === 403 && preVerifyOrder.data.code === 'EMAIL_NOT_VERIFIED', 'Unverified customer blocked from createOrder (403 EMAIL_NOT_VERIFIED)');
 
-// Email verification unlocks ordering
+// Unauthenticated verify_email rejected
 const verifyRes = await req('auth.php', { action: 'verify_email', email: c1.data.user.email }, 'POST');
-ok(verifyRes.code === 200, 'Customer email verified via action code');
-c = verifyRes.data.token;
+ok(verifyRes.code === 401 || verifyRes.code === 403 || verifyRes.code === 404, 'Customer unauthenticated verify_email rejected (401/403/404)');
+
+// Customer email verified via authorized claims
+const { PrismaClient } = await import('../backend/node_modules/@prisma/client/index.js');
+const prisma = new PrismaClient();
+const updatedUser = await prisma.user.update({
+  where: { email: c1.data.user.email },
+  data: { emailVerified: true }
+});
+const { generateTestToken } = await import('../backend/dist/config/index.js');
+c = generateTestToken({
+  uid: updatedUser.firebaseUid,
+  email: updatedUser.email,
+  role: 'CUSTOMER',
+  email_verified: true
+});
+await prisma.$disconnect();
 const staffProvision = await req('users.php', { name: 'Cashier', username: 'staff-' + randomUUID(), password, role: 'Staff' }, 'POST', a);
 ok(staffProvision.code === 422, 'Role "Staff" is strictly rejected when provisioning users (422)');
 
@@ -55,7 +71,7 @@ const p=ps.find(p=>p.id==1);await req('products.php',{...p,production_cost:'20.0
 const historical=await req('sales.php?id='+sale.data.id,null,'GET',a);ok(Number(historical.data.items.find(l=>l.product_id==1).unit_cost_snapshot)===10,'Historical cost snapshot survives price edits');
 ok((await req('sales.php', { id: sale.data.id, reason: 'Unauthorized reversal' }, 'PATCH', c)).code === 403, 'Customer cannot void sales (403)');
 ok((await req('sales.php', { reason: 'Missing sale id' }, 'PATCH', a)).code === 422, 'Void without sale id rejected (422)');
-const vp={id:sale.data.id,admin_username:'test-owner',admin_password:password,reason:'Test reversal'};
+const vp={id:sale.data.id,admin_username:adminUsername,admin_password:password,reason:'Test reversal'};
 ok((await req('sales.php',vp,'PATCH',a)).data.status==='VOIDED','Administrator direct void');
 await req('sales.php',vp,'PATCH',a);ps=(await req('products.php',null,'GET',a)).data;ok(Number(ps.find(p=>p.id==1).stock)===20,'Repeated void restores stock only once');
 const orderBody={items:[{product_id:1,qty:3}],fulfillment:'PICKUP',address:'',method:'CASH',request_key:randomUUID()};

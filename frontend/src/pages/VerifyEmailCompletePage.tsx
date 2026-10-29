@@ -16,7 +16,7 @@ export const VerifyEmailCompletePage: React.FC = () => {
     const email = params.get('email');
     const uid = params.get('uid');
 
-    // 1. If Firebase action code is present, verify via Firebase Web SDK
+    // 1. If Firebase action code is present, verify strictly via Firebase Web SDK
     if (oobCode && !oobCode.startsWith('code-')) {
       applyActionCode(auth, oobCode)
         .then(() => {
@@ -24,52 +24,22 @@ export const VerifyEmailCompletePage: React.FC = () => {
         })
         .catch((err: any) => {
           console.error('Firebase applyActionCode error:', err);
-          if (email) {
-            // Attempt fallback verification via backend API
-            verifyViaBackend(email);
+          setStatus('error');
+          if (err.code === 'auth/invalid-action-code') {
+            setErrorMessage('This verification link is invalid or has already been used.');
+          } else if (err.code === 'auth/expired-action-code') {
+            setErrorMessage('This verification link has expired. Please request a new one.');
           } else {
-            setStatus('error');
-            if (err.code === 'auth/invalid-action-code') {
-              setErrorMessage('This verification link is invalid or has already been used.');
-            } else if (err.code === 'auth/expired-action-code') {
-              setErrorMessage('This verification link has expired. Please request a new one.');
-            } else {
-              setErrorMessage(err.message || 'Verification failed. Please try requesting a new link.');
-            }
+            setErrorMessage(err.message || 'Verification failed. Please try requesting a new link.');
           }
         });
       return;
     }
 
-    // 2. Direct verification fallback if email is present
-    if (email) {
-      verifyViaBackend(email);
-      return;
-    }
-
+    // Never trust client email/flag fallback: verification must come from Firebase action code
     setStatus('error');
-    setErrorMessage('No verification code or email identifier was found in the link.');
+    setErrorMessage('No valid verification action code was found in the link.');
   }, []);
-
-  const verifyViaBackend = async (email: string) => {
-    try {
-      const res = await fetch('/api/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'verify_email', email })
-      });
-      if (res.ok) {
-        setStatus('success');
-      } else {
-        const data = await res.json().catch(() => ({}));
-        setStatus('error');
-        setErrorMessage(data.error || 'Verification failed. Please try requesting a new link.');
-      }
-    } catch (err: any) {
-      setStatus('error');
-      setErrorMessage(err.message || 'Verification request could not be completed.');
-    }
-  };
 
   return (
     <div

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { prisma, config, generateTestToken } from '../config/index.js';
-import { authenticate, requireEmailVerified } from '../middleware/auth.js';
+import { authenticate, requireEmailVerified, requireConsent } from '../middleware/auth.js';
 import { Role } from '@prisma/client';
 import { sanitize, apiLimiter } from '../middleware/security.js';
 import { Mailer } from '../services/mailer.js';
@@ -118,12 +118,24 @@ router.post('/', async (req: Request, res: Response) => {
       console.error('[Auth] Verification email dispatch failure:', err);
     });
 
-    const token = generateTestToken({
-      uid: user.firebaseUid,
-      email: user.email,
-      role: 'CUSTOMER',
-      email_verified: false
-    });
+    let token = '';
+    if (config.nodeEnv !== 'production' && process.env.ALLOW_LOCAL_AUTH_FALLBACK === 'true') {
+      token = generateTestToken({
+        uid: user.firebaseUid,
+        email: user.email,
+        role: 'CUSTOMER',
+        email_verified: false
+      });
+    } else if (admin.apps.length > 0) {
+      try {
+        token = await admin.auth().createCustomToken(user.firebaseUid, {
+          role: 'CUSTOMER',
+          email_verified: false
+        });
+      } catch (e: any) {
+        console.warn('[Auth] Custom token fallback:', e.message);
+      }
+    }
 
     return res.status(200).json({
       token,
@@ -139,46 +151,11 @@ router.post('/', async (req: Request, res: Response) => {
     });
   }
 
-  // 1b. Mark email verified (action code completion simulation for tests / web callback)
+  // 1b. Reject direct unauthenticated verify_email action
   if (action === 'verify_email') {
-    const { email } = req.body;
-    if (!email) {
-      return res.status(422).json({ error: 'Email is required' });
-    }
-    const cleanEmail = sanitize(email);
-    const user = await prisma.user.findFirst({
-      where: {
-        OR: [{ email: cleanEmail }, { username: cleanEmail }]
-      }
-    });
-
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    const updated = await prisma.user.update({
-      where: { id: user.id },
-      data: { emailVerified: true }
-    });
-
-    const token = generateTestToken({
-      uid: updated.firebaseUid,
-      email: updated.email,
-      role: 'CUSTOMER',
-      email_verified: true
-    });
-
-    return res.status(200).json({
-      message: 'Email marked as verified',
-      token,
-      user: {
-        id: updated.id,
-        name: updated.name,
-        username: updated.username,
-        email: updated.email,
-        email_verified: true,
-        role: 'Customer'
-      }
+    return res.status(403).json({
+      error: 'Direct email verification via API is disabled. Verification must be performed via Firebase.',
+      code: 'VERIFY_EMAIL_DISABLED'
     });
   }
 
@@ -255,8 +232,8 @@ router.post('/', async (req: Request, res: Response) => {
     return res.status(422).json({ error: 'Password is required' });
   }
 
-  // In production, reject local username/password fallback (fail closed)
-  if (config.nodeEnv === 'production') {
+  // In production or when local fallback is not enabled, reject local username/password fallback (fail closed)
+  if (config.nodeEnv === 'production' || process.env.ALLOW_LOCAL_AUTH_FALLBACK !== 'true') {
     return res.status(403).json({ error: 'Direct local authentication is disabled in production. Use Firebase authentication.' });
   }
 
@@ -417,6 +394,10 @@ router.post('/post-reset', apiLimiter, async (req: Request, res: Response) => {
 
 router.get('/', authenticate, async (req: Request, res: Response) => {
   const user = req.user!;
+  const consentRecord = await prisma.userConsent.findFirst({
+    where: { userId: user.id, consent: true },
+    orderBy: { acceptedAt: 'desc' }
+  });
   return res.json({
     id: user.id,
     name: user.name,
@@ -425,12 +406,17 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
     phone: user.phone,
     address: user.address,
     email_verified: Boolean(user.emailVerified),
+    has_consent: Boolean(consentRecord),
     role: user.role === Role.ADMIN ? 'Administrator' : 'Customer'
   });
 });
 
 router.get('/me', authenticate, async (req: Request, res: Response) => {
   const user = req.user!;
+  const consentRecord = await prisma.userConsent.findFirst({
+    where: { userId: user.id, consent: true },
+    orderBy: { acceptedAt: 'desc' }
+  });
   return res.json({
     id: user.id,
     name: user.name,
@@ -439,11 +425,32 @@ router.get('/me', authenticate, async (req: Request, res: Response) => {
     phone: user.phone,
     address: user.address,
     email_verified: Boolean(user.emailVerified),
+    has_consent: Boolean(consentRecord),
     role: user.role === Role.ADMIN ? 'Administrator' : 'Customer'
   });
 });
 
-router.patch('/', authenticate, requireEmailVerified, async (req: Request, res: Response) => {
+router.post('/consent', authenticate, async (req: Request, res: Response) => {
+  const { consent, termsVersion } = req.body;
+  if (!consent) {
+    return res.status(422).json({ error: 'Consent is required' });
+  }
+
+  const cleanVersion = sanitize(termsVersion || '2026-v1.0');
+  await prisma.userConsent.create({
+    data: {
+      userId: req.user!.id,
+      consent: true,
+      termsVersion: cleanVersion,
+      ipAddress: req.ip || req.socket.remoteAddress || null,
+      userAgent: (req.headers['user-agent'] as string) || null
+    }
+  });
+
+  return res.status(200).json({ message: 'Consent successfully recorded' });
+});
+
+router.patch('/', authenticate, requireEmailVerified, requireConsent, async (req: Request, res: Response) => {
   const { name, address, phone } = req.body;
   const updated = await prisma.user.update({
     where: { id: req.user!.id },

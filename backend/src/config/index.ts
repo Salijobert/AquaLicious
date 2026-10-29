@@ -13,11 +13,27 @@ dotenv.config();
 
 const isProduction = process.env.NODE_ENV === 'production';
 
-// In production, the server MUST refuse to start if JWT_SECRET is missing or weak (< 32 characters)
+const rawAdminUids = process.env.ADMIN_FIREBASE_UIDS || process.env.ADMIN_FIREBASE_UID || '';
+const parsedAdminUids = rawAdminUids
+  .split(',')
+  .map(u => u.trim())
+  .filter(Boolean);
+
+// In production, the server MUST refuse to start if test auth is enabled, if JWT_SECRET is missing or weak (< 32 characters), or if at least one ADMIN_FIREBASE_UID(S) is missing
 if (isProduction) {
   if (!process.env.JWT_SECRET || process.env.JWT_SECRET.trim().length < 32) {
     throw new Error(
       'FATAL CONFIGURATION ERROR: In production, JWT_SECRET environment variable is required and must be at least 32 characters long. Server refusing to start.'
+    );
+  }
+  if (process.env.ALLOW_LOCAL_AUTH_FALLBACK === 'true' || process.env.ALLOW_LOCAL_AUTH_FALLBACK === '1') {
+    throw new Error(
+      'FATAL CONFIGURATION ERROR: ALLOW_LOCAL_AUTH_FALLBACK must never be true in production. Test auth is strictly forbidden in production. Server refusing to start.'
+    );
+  }
+  if (parsedAdminUids.length === 0) {
+    throw new Error(
+      'FATAL CONFIGURATION ERROR: In production, ADMIN_FIREBASE_UIDS (or ADMIN_FIREBASE_UID) environment variable is required with at least one authorized UID. Server refusing to start.'
     );
   }
 }
@@ -26,6 +42,8 @@ export const config = {
   port: parseInt(process.env.PORT || '8088', 10),
   failoverPort: parseInt(process.env.FAILOVER_PORT || '8089', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
+  adminFirebaseUids: parsedAdminUids,
+  adminFirebaseUid: parsedAdminUids[0] || '',
   databaseUrl: process.env.DATABASE_URL || 'postgresql://postgres@localhost:5432/aqualicious_pg?schema=public',
   corsOrigins: (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:8080,http://localhost:8090,https://localhost,capacitor://localhost')
     .split(',')
@@ -119,8 +137,8 @@ export interface TokenClaims {
 
 /**
  * Verifies a Firebase ID token.
- * In production, validates against Google's Firebase Auth servers.
- * In local testing/dev environments, also accepts HMAC/RSA signed tokens matching test keys.
+ * In production, validates strictly against Google Firebase Auth.
+ * Test-auth HMAC verification is completely disabled in production.
  */
 export async function verifyToken(idToken: string): Promise<TokenClaims> {
   if (!idToken) {
@@ -137,7 +155,12 @@ export async function verifyToken(idToken: string): Promise<TokenClaims> {
       email: decoded.email
     };
   } catch (fbErr: any) {
-    // 2. Fallback to local / backend-signed JWT verification (supports admin username logins and test tokens)
+    // In production or when local fallback is not explicitly enabled, fail immediately: NO test token fallback
+    if (isProduction || process.env.ALLOW_LOCAL_AUTH_FALLBACK !== 'true') {
+      throw new Error(fbErr.message || 'Invalid or expired Firebase ID token');
+    }
+
+    // 2. ONLY for local development / test environments when explicitly allowed
     try {
       const decoded = jwt.verify(idToken, config.jwtSecret) as TokenClaims;
       if (decoded && decoded.uid) {
@@ -148,7 +171,7 @@ export async function verifyToken(idToken: string): Promise<TokenClaims> {
           email: decoded.email
         };
       }
-    } catch (jwtErr) {
+    } catch {
       throw new Error(fbErr.message || 'Invalid authentication token');
     }
     throw new Error(fbErr.message || 'Invalid Firebase ID token');
@@ -156,9 +179,13 @@ export async function verifyToken(idToken: string): Promise<TokenClaims> {
 }
 
 /**
- * Creates a test Firebase-compatible ID token for automated test environments.
+ * Creates a test Firebase-compatible ID token ONLY for automated test environments.
+ * Strictly throws if called in production or without ALLOW_LOCAL_AUTH_FALLBACK=true.
  */
 export function generateTestToken(claims: TokenClaims): string {
+  if (isProduction || process.env.ALLOW_LOCAL_AUTH_FALLBACK !== 'true') {
+    throw new Error('FATAL: generateTestToken is strictly disabled in production');
+  }
   return jwt.sign(
     {
       iss: `https://securetoken.google.com/${config.firebaseProjectId}`,

@@ -1,0 +1,1 @@
+const c=require('../../ecosystem.config.cjs');const a=c.apps[0];a.name='aqualicious-qa';a.instances=2;a.cwd="E:\\AquaLicious\\tests\\qa";a.env={...a.env,...JSON.parse(require('fs').readFileSync("E:\\AquaLicious\\tests\\qa\\env.json")) ,NODE_ENV:'production',PORT:18110};module.exports=c;

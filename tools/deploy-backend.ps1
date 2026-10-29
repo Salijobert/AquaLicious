@@ -13,8 +13,10 @@ Write-Host "=== AQUALICIOUS BACKEND DEPLOYMENT ===" -ForegroundColor Cyan
 
 # 1. Run Prisma Database Migrations
 Write-Host "`n[1/3] Running Prisma migrate deploy..." -ForegroundColor Yellow
-npx prisma migrate deploy --schema=./backend/prisma/schema.prisma
+Push-Location ./backend
+& node ./node_modules/prisma/build/index.js migrate deploy
 Assert-LastExitCode "Prisma migrate deploy"
+Pop-Location
 
 # 2. Compile TypeScript
 Write-Host "`n[2/3] Building backend TypeScript..." -ForegroundColor Yellow
@@ -23,7 +25,7 @@ Assert-LastExitCode "Backend TypeScript build"
 
 # 3. Reload PM2 Cluster
 Write-Host "`n[3/3] Executing zero-downtime pm2 reload..." -ForegroundColor Yellow
-& pm2 startOrReload ./ecosystem.config.cjs --update-env
+& npx pm2 startOrReload ./ecosystem.config.cjs --update-env
 Assert-LastExitCode "PM2 startOrReload"
 
 Write-Host "`n=== BACKEND DEPLOYMENT SUCCEEDED ===" -ForegroundColor Green

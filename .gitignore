@@ -18,10 +18,14 @@ runtime/
 private-signing/
 /deliverables/
 !frontend/public/deliverables/
+mobile/www/deliverables/
 paper-extracted.txt
 mockups-contact.png
 tests/screenshots/
 tools/audit_results.json
 tools/staff_occurrences.json
+tools/reconcile-*.json
+reconcile-users-report-*.json
+audit-users-report*.json
 
 .vercel

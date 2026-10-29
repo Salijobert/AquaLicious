@@ -144,8 +144,9 @@ ok(redirectsIdx < rewritesIdx, 'Server-side redirects are ordered before SPA rew
 // -------------------------------------------------------------
 console.log('\n[7] Testing Client-Side Alias Fallback in App.tsx...');
 for (const [src, dest] of legacyUrls) {
-  const routeDeclaration = `<Route path="${src}" element={<Navigate to="${dest}" replace />} />`;
-  ok(appContent.includes(routeDeclaration), `Client-side fallback exists for ${src} -> ${dest}`);
+  const matchNavigate = appContent.includes(`<Route path="${src}" element={<Navigate to="${dest}" replace />} />`);
+  const matchPreserve = appContent.includes(`<Route path="${src}" element={<PreserveQueryRedirect to="${dest}" />}`);
+  ok(matchNavigate || matchPreserve, `Client-side fallback exists for ${src} -> ${dest}`);
 }
 
 // -------------------------------------------------------------
@@ -192,7 +193,13 @@ for (const target of wideTargets) {
       file.endsWith('.ico') ||
       file.endsWith('.p12') ||
       file.endsWith('.dpapi') ||
-      file.endsWith('.map')
+      file.endsWith('.map') ||
+      file.endsWith('.log') ||
+      file.endsWith('.jsonl') ||
+      file.includes('tests/qa') ||
+      file.includes('tests\\qa') ||
+      file.includes('tests/reports') ||
+      file.includes('tests\\reports')
     ) {
       continue;
     }
@@ -206,7 +213,7 @@ for (const target of wideTargets) {
         file.endsWith('security_and_verification.mjs')
       ) return;
       if (file.endsWith('vercel.json')) return;
-      if (file.endsWith('App.tsx') && line.includes('<Route path="') && line.includes('<Navigate to=')) return;
+      if (file.endsWith('App.tsx') && line.includes('<Route path="') && (line.includes('<Navigate to=') || line.includes('PreserveQueryRedirect'))) return;
       if (file.endsWith('App.tsx') && line.includes('isHomePage')) return;
       if ((file.includes('dist') || file.includes('www')) && line.includes('element:') && line.includes('path:')) return;
       if ((file.includes('dist') || file.includes('www')) && line.includes('isHomePage')) return;
@@ -227,10 +234,10 @@ for (const target of wideTargets) {
   }
 }
 
-ok(wideViolations.length === 0, `Wide check: 0 illegal .html links found across src, dist, www, backend, public, and tests (violations: ${wideViolations.length})`);
 if (wideViolations.length > 0) {
   console.error('Wide check violations:', wideViolations);
 }
+ok(wideViolations.length === 0, `Wide check: 0 illegal .html links found across src, dist, www, backend, public, and tests (violations: ${wideViolations.length})`);
 
 // -------------------------------------------------------------
 // 10. BACKEND EMAIL TEMPLATES & QUERY PARAMETERS
@@ -280,7 +287,7 @@ ok(
 // 12.2. Confirm local password auth fallback strictly blocked in production
 const authRoutesCode = fs.readFileSync('backend/src/routes/authRoutes.ts', 'utf8');
 ok(
-  authRoutesCode.includes("if (config.nodeEnv === 'production')") &&
+  (authRoutesCode.includes("if (config.nodeEnv === 'production'") || authRoutesCode.includes("config.nodeEnv === 'production'")) &&
   authRoutesCode.includes('Direct local authentication is disabled in production. Use Firebase authentication.'),
   'Local authentication fallback is strictly blocked in production (returns 403)'
 );

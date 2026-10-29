@@ -7,13 +7,15 @@ interface TermsPrivacyModalProps {
   onClose: () => void;
   onAccept: (termsVersion: string) => void;
   isSubmitting?: boolean;
+  submitLabel?: string;
 }
 
 export const TermsPrivacyModal: React.FC<TermsPrivacyModalProps> = ({
   isOpen,
   onClose,
   onAccept,
-  isSubmitting = false
+  isSubmitting = false,
+  submitLabel
 }) => {
   const [agreed, setAgreed] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
@@ -33,6 +35,22 @@ export const TermsPrivacyModal: React.FC<TermsPrivacyModalProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !isSubmitting) {
         onClose();
+      }
+      if (e.key === 'Tab' && modalRef.current) {
+        const focusable = modalRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+        if (focusable.length > 0) {
+          const first = focusable[0];
+          const last = focusable[focusable.length - 1];
+          if (e.shiftKey && (document.activeElement === first || !modalRef.current.contains(document.activeElement))) {
+            e.preventDefault();
+            last.focus();
+          } else if (!e.shiftKey && (document.activeElement === last || !modalRef.current.contains(document.activeElement))) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
       }
     };
 
@@ -165,7 +183,7 @@ export const TermsPrivacyModal: React.FC<TermsPrivacyModalProps> = ({
             onClick={() => onAccept(TERMS_VERSION)}
             className="btn btn-primary btn-sm font-bold text-white px-5 shadow-sm"
           >
-            {isSubmitting ? 'Registering...' : 'Accept & Register'}
+            {isSubmitting ? 'Saving...' : (submitLabel || 'Accept & Register')}
           </button>
         </div>
       </div>

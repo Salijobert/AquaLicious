@@ -1,13 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { OrderService } from '../services/orderService.js';
-import { authenticate, requireEmailVerified } from '../middleware/auth.js';
+import { authenticate, requireEmailVerified, requireConsent } from '../middleware/auth.js';
 import { idempotencyMiddleware } from '../middleware/idempotency.js';
 import { prisma } from '../config/index.js';
 
 const router = Router();
 
 router.get('/', authenticate, async (req: Request, res: Response) => {
-  const { id, proof, limit, email_logs } = req.query;
+  const { id, proof, raw, limit, email_logs } = req.query;
 
   try {
     if (email_logs) {
@@ -22,6 +22,14 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
     }
     if (proof) {
       const proofData = await OrderService.getProof(Number(proof), req.user!);
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      if (raw === '1' || req.headers.accept?.startsWith('image/')) {
+        const matches = proofData.proof_base64.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+        const mime = matches ? matches[1] : 'image/jpeg';
+        const data = matches ? matches[2] : proofData.proof_base64;
+        res.setHeader('Content-Type', mime);
+        return res.send(Buffer.from(data, 'base64'));
+      }
       return res.json(proofData);
     }
 
@@ -37,7 +45,7 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
   }
 });
 
-router.post('/', authenticate, requireEmailVerified, idempotencyMiddleware('create_order'), async (req: Request, res: Response) => {
+router.post('/', authenticate, requireEmailVerified, requireConsent, idempotencyMiddleware('create_order'), async (req: Request, res: Response) => {
   const { items, fulfillment, address, method, expected_total, request_key } = req.body;
 
   try {
@@ -62,6 +70,19 @@ router.patch('/', authenticate, async (req: Request, res: Response) => {
 
   if (!id || !action) {
     return res.status(422).json({ error: 'Order id and action are required' });
+  }
+
+  // Customer actions require consent
+  if (req.user!.role === 'CUSTOMER') {
+    const consent = await prisma.userConsent.findFirst({
+      where: { userId: req.user!.id, consent: true }
+    });
+    if (!consent) {
+      return res.status(403).json({
+        error: 'Data Privacy Act consent is required before performing customer actions.',
+        code: 'CONSENT_REQUIRED'
+      });
+    }
   }
 
   // Block unverified customer from claiming payment proof

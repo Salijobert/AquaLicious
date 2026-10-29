@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { prisma, verifyToken } from '../config/index.js';
+import { prisma, verifyToken, config } from '../config/index.js';
 import { Role } from '@prisma/client';
 
 export interface AuthUser {
@@ -37,16 +37,67 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
   const token = authHeader.split('Bearer ')[1]!.trim();
   try {
     const claims = await verifyToken(token);
+    const isTokenVerified = Boolean(claims.email_verified || claims.emailVerified);
     
-    // Look up user profile in PostgreSQL
+    // 1. Look up user profile strictly by firebaseUid first
     let user = await prisma.user.findFirst({
-      where: {
-        OR: [
-          { firebaseUid: claims.uid },
-          ...(claims.email ? [{ email: claims.email }] : [])
-        ]
-      }
+      where: { firebaseUid: claims.uid }
     });
+
+    // 2. If not found by firebaseUid, only link an existing user by email if token is VERIFIED
+    if (!user && claims.email) {
+      const cleanEmail = claims.email.trim().toLowerCase();
+      const existingUser = await prisma.user.findFirst({
+        where: { email: cleanEmail }
+      });
+
+      if (existingUser) {
+        // Enforce: unverified Firebase token must NEVER link to an existing account
+        if (!isTokenVerified) {
+          return res.status(403).json({
+            error: 'Email verification required in Firebase before linking to existing profile',
+            code: 'EMAIL_VERIFICATION_REQUIRED_FOR_LINK'
+          });
+        }
+
+        // An unverified or unauthorized Firebase identity must never get the admin profile
+        if (existingUser.role === Role.ADMIN) {
+          const authorizedUids = config.adminFirebaseUids;
+          const isAuthorized =
+            authorizedUids.length === 0 ||
+            authorizedUids.includes(claims.uid) ||
+            (config.nodeEnv !== 'production' && claims.uid.startsWith('local-'));
+
+          if (!isAuthorized) {
+            return res.status(403).json({
+              error: 'Unauthorized Firebase identity for Administrator account',
+              code: 'FIREBASE_UID_MISMATCH'
+            });
+          }
+        }
+
+        // Check if existing user is already permanently linked to a different real Firebase UID
+        const isPlaceholderUid = existingUser.firebaseUid.startsWith('uid-') || 
+                                 existingUser.firebaseUid.startsWith('qa-') ||
+                                 existingUser.firebaseUid.startsWith('local-') ||
+                                 existingUser.firebaseUid.startsWith('demo-');
+        if (!isPlaceholderUid && existingUser.firebaseUid !== claims.uid) {
+          return res.status(403).json({
+            error: 'Account is already linked to a different Firebase identity',
+            code: 'FIREBASE_UID_MISMATCH'
+          });
+        }
+
+        // First link: update database record with verified firebaseUid
+        user = await prisma.user.update({
+          where: { id: existingUser.id },
+          data: {
+            firebaseUid: claims.uid,
+            emailVerified: true
+          }
+        });
+      }
+    }
 
     if (!user) {
       // First sign-in for customer: auto-provision CUSTOMER role ONLY.
@@ -62,14 +113,29 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
           username: defaultUsername,
           email: claims.email || `${claims.uid}@aqualicious.local`,
           role: Role.CUSTOMER,
-          emailVerified: Boolean(claims.email_verified || claims.emailVerified),
+          emailVerified: isTokenVerified,
           active: true
         }
       });
     }
 
+    // Admin profile check: if user is Admin, verify UID matches authorized admin UIDs
+    if (user.role === Role.ADMIN) {
+      const authorizedUids = config.adminFirebaseUids;
+      const isAuthorized =
+        authorizedUids.length === 0 ||
+        authorizedUids.includes(user.firebaseUid) ||
+        (config.nodeEnv !== 'production' && user.firebaseUid.startsWith('local-'));
+
+      if (!isAuthorized) {
+        return res.status(403).json({
+          error: 'Administrator account requires authorized Firebase UID',
+          code: 'FIREBASE_UID_MISMATCH'
+        });
+      }
+    }
+
     // Sync token email verification with database if claims indicate verified
-    const isTokenVerified = Boolean(claims.email_verified || claims.emailVerified);
     if (isTokenVerified && !user.emailVerified) {
       user = await prisma.user.update({
         where: { id: user.id },
@@ -101,12 +167,7 @@ export async function optionalAuth(req: Request, res: Response, next: NextFuncti
   try {
     const claims = await verifyToken(token);
     const user = await prisma.user.findFirst({
-      where: {
-        OR: [
-          { firebaseUid: claims.uid },
-          ...(claims.email ? [{ email: claims.email }] : [])
-        ]
-      }
+      where: { firebaseUid: claims.uid }
     });
 
     if (user && user.active) {
@@ -162,6 +223,39 @@ export function requireEmailVerified(req: Request, res: Response, next: NextFunc
 }
 
 /**
+ * Guard middleware enforcing Data Privacy Act consent (RA 10173).
+ * Customer actions require an active UserConsent record with consent=true.
+ * Administrators are exempt.
+ */
+export async function requireConsent(req: Request, res: Response, next: NextFunction) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  // Administrators are exempt from customer privacy terms
+  if (req.user.role === Role.ADMIN) {
+    return next();
+  }
+
+  const consentRecord = await prisma.userConsent.findFirst({
+    where: {
+      userId: req.user.id,
+      consent: true
+    },
+    orderBy: { acceptedAt: 'desc' }
+  });
+
+  if (!consentRecord) {
+    return res.status(403).json({
+      error: 'Data Privacy Act consent is required before performing customer actions.',
+      code: 'CONSENT_REQUIRED'
+    });
+  }
+
+  next();
+}
+
+/**
  * Server-verified administrator authorization for void approvals.
  * Adapts to Firebase reauthentication: accepts either current admin user or an admin reauth token.
  */
@@ -174,16 +268,14 @@ export async function verifyAdminApproval(adminTokenOrUid: string): Promise<Auth
   try {
     const claims = await verifyToken(adminTokenOrUid);
     const user = await prisma.user.findFirst({
-      where: {
-        OR: [
-          { firebaseUid: claims.uid },
-          ...(claims.email ? [{ email: claims.email }] : [])
-        ]
-      }
+      where: { firebaseUid: claims.uid }
     });
 
     if (user && user.active && user.role === Role.ADMIN) {
-      adminUser = user;
+      const expectedAdminUid = process.env.ADMIN_FIREBASE_UID;
+      if (!expectedAdminUid || user.firebaseUid === expectedAdminUid) {
+        adminUser = user;
+      }
     }
   } catch {
     // If not a token, check if it's an admin user's UID or ID if running under trusted session

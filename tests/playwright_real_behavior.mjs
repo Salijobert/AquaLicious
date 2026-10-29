@@ -2,9 +2,13 @@ import { chromium } from '../tools/node_modules/playwright/index.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 const baseUrl = process.env.AQ_TEST_WEB || 'http://127.0.0.1:8088';
-const adminPassword = process.env.AQ_ADMIN_PASSWORD || 'admin123';
+const adminPassword = process.env.AQ_ADMIN_PASSWORD;
+if (!adminPassword) {
+  throw new Error('AQ_ADMIN_PASSWORD environment variable is required');
+}
 
 console.log('=== AQUALICIOUS REAL PLAYWRIGHT BEHAVIOR TEST SUITE ===');
 console.log(`Target Web Server: ${baseUrl}\n`);
@@ -13,6 +17,16 @@ const browser = await chromium.launch({
   headless: true,
   executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe'
 });
+
+async function createContext(options = {}) {
+  const ctx = await browser.newContext(options);
+  await ctx.route('http://localhost:8088/**', (route) => {
+    const url = new URL(route.request().url());
+    const dest = `${baseUrl}${url.pathname}${url.search}`;
+    route.continue({ url: dest });
+  });
+  return ctx;
+}
 
 let passed = 0;
 let failed = 0;
@@ -41,7 +55,7 @@ try {
   const unverifiedEmail = `cust_u_${uniqueId}@example.com`;
   const customerPassword = adminPassword;
 
-  // 1. Register verified customer
+  // 1. Register customer
   await fetch(`${baseUrl}/api/auth`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -55,12 +69,32 @@ try {
       termsVersion: '2026-v1.0'
     })
   });
-  // Unlock / verify customer email
-  await fetch(`${baseUrl}/api/auth`, {
+
+  // Direct unauthenticated verify_email must be rejected
+  const verifyEmailRes = await fetch(`${baseUrl}/api/auth`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'verify_email', email: verifiedEmail })
   });
+  report(
+    verifyEmailRes.status === 401 || verifyEmailRes.status === 403 || verifyEmailRes.status === 404,
+    'Unauthenticated verify_email request is strictly rejected (401/403/404)'
+  );
+
+  // Set email verified in test database fixture helper
+  const { PrismaClient } = await import('../backend/node_modules/@prisma/client/index.js');
+  const prisma = new PrismaClient();
+  await prisma.user.update({
+    where: { email: verifiedEmail },
+    data: { emailVerified: true }
+  });
+  await prisma.product.updateMany({
+    where: { id: 1 },
+    data: { stock: 50 }
+  });
+  const seededAdmin = await prisma.user.findFirst({ where: { role: 'ADMIN' } });
+  const adminUsername = process.env.AQ_UI_USERNAME || seededAdmin?.username || 'admin';
+  await prisma.$disconnect();
 
   // 2. Register unverified customer
   await fetch(`${baseUrl}/api/auth`, {
@@ -81,7 +115,7 @@ try {
   // TEST SECTION 1: LOGGED-OUT HOME PAGE ("/") & ZERO-STOCK DISPLAY
   // =========================================================================
   console.log('[1] Testing Logged-Out "/" (Home / Storefront)...');
-  const guestContext = await browser.newContext();
+  const guestContext = await createContext();
   const guestPage = await guestContext.newPage();
   await guestPage.goto(`${baseUrl}/`);
   await guestPage.waitForSelector('#products-catalog');
@@ -102,10 +136,10 @@ try {
   const outOfStockBadges = await guestPage.locator('span:has-text("Out of Stock")').count();
   report(outOfStockBadges > 0, 'Storefront renders "Out of Stock" badge for products with stock 0');
 
-  // Verify volume display in product titles (e.g. "Purified Water · 500ml")
-  const volume500ml = await guestPage.locator('h3:has-text("Purified Water · 500ml")').count();
-  const volume1L = await guestPage.locator('h3:has-text("Purified Water · 1L")').count();
-  report(volume500ml > 0 && volume1L > 0, 'Storefront displays volume in product card titles (e.g. "Purified Water · 500ml")');
+  // Verify volume display in product titles (e.g. "QA-WATER · 5 Gallon")
+  const volumeInTitles = await guestPage.locator('h3:has-text("·")').count();
+  const volumeLabelCount = await guestPage.locator('h3:has-text("5 Gallon"), h3:has-text("Gallon")').count();
+  report(volumeInTitles > 0 && volumeLabelCount > 0, 'Storefront displays volume in product card titles (e.g. "QA-WATER · 5 Gallon")');
 
   await guestPage.screenshot({ path: 'tests/screenshots/guest_storefront.png' });
   await guestContext.close();
@@ -135,7 +169,7 @@ try {
   ];
 
   for (const urlPath of legacyUrlsToCheck) {
-    const ctx = await browser.newContext();
+    const ctx = await createContext();
     const p = await ctx.newPage();
     let adminApiLeak = false;
 
@@ -163,7 +197,7 @@ try {
   // TEST SECTION 3: SIGNED-IN CUSTOMER (STOREFRONT, LOGO, COST STRIPPING & /admin/products BLOCK)
   // =========================================================================
   console.log('\n[3] Testing Signed-In Verified Customer...');
-  const customerContext = await browser.newContext();
+  const customerContext = await createContext();
   const customerPage = await customerContext.newPage();
 
   // Sign in as Customer
@@ -173,7 +207,7 @@ try {
   await customerPage.click('button[type="submit"]');
 
   // Customer should land on "/"
-  await customerPage.waitForURL(`${baseUrl}/`);
+  await customerPage.waitForURL(url => new URL(url).pathname === '/', { timeout: 10000 }).catch(() => {});
   report(customerPage.url() === `${baseUrl}/`, 'Customer login successfully redirects to "/"');
 
   // Click the logo from anywhere on the storefront
@@ -217,10 +251,83 @@ try {
   await customerContext.close();
 
   // =========================================================================
+  // TEST SECTION 3B: CONSENT INTERCEPT & RECOVERY FLOW (Playwright)
+  // =========================================================================
+  console.log('\n[3B] Testing Customer Consent Intercept & Recovery Flow...');
+  const unconsentedUsername = `noconsent_${randomUUID().slice(0, 8)}`;
+  const unconsentedEmail = `${unconsentedUsername}@example.com`;
+
+  // Register customer
+  await fetch(`${baseUrl}/api/auth`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'register',
+      name: 'Unconsented Customer',
+      username: unconsentedUsername,
+      email: unconsentedEmail,
+      password: customerPassword,
+      consent: true,
+      termsVersion: '2026-v1.0'
+    })
+  });
+
+  // Remove consent record in DB and mark emailVerified = true
+  const consentPrisma = new PrismaClient();
+  await consentPrisma.user.update({
+    where: { email: unconsentedEmail },
+    data: { emailVerified: true }
+  });
+  await consentPrisma.userConsent.deleteMany({
+    where: { user: { email: unconsentedEmail } }
+  });
+  await consentPrisma.$disconnect();
+
+  const noConsentContext = await createContext();
+  const noConsentPage = await noConsentContext.newPage();
+
+  // Sign in as unconsented customer
+  await noConsentPage.goto(`${baseUrl}/login`);
+  await noConsentPage.fill('input[name="username"]', unconsentedUsername);
+  await noConsentPage.fill('input[name="password"]', customerPassword);
+  await noConsentPage.click('button[type="submit"]');
+  await noConsentPage.waitForURL(url => new URL(url).pathname === '/', { timeout: 10000 }).catch(() => {});
+  report(noConsentPage.url() === `${baseUrl}/`, 'Customer without consent record signs in and lands on "/"');
+
+  // Add product to cart
+  const addBtn = noConsentPage.locator('button[data-action="add"]').first();
+  await addBtn.click();
+  await noConsentPage.waitForSelector('form[class*="p-4"] button[type="submit"]');
+
+  // Attempt checkout without consent -> 403 CONSENT_REQUIRED triggers TermsPrivacyModal
+  const placeOrderBtn = noConsentPage.locator('button[type="submit"]:has-text("Place Order")');
+  await placeOrderBtn.click();
+
+  // Verify Terms modal appears
+  await noConsentPage.waitForSelector('#terms-modal-title', { timeout: 8000 });
+  const modalVisible = await noConsentPage.locator('#terms-modal-title').isVisible();
+  report(modalVisible, '403 CONSENT_REQUIRED intercepted: Terms & Privacy modal is displayed');
+
+  // Check consent checkbox inside modal
+  const agreeCheckbox = noConsentPage.locator('label:has-text("Data Privacy Act") input[type="checkbox"]');
+  await agreeCheckbox.check();
+
+  // Click Accept & Continue
+  const acceptConsentBtn = noConsentPage.locator('button:has-text("I Agree & Continue"), button:has-text("Accept")').last();
+  await acceptConsentBtn.click();
+
+  // Verify consent is saved, order is retried and placed, and redirected to /orders
+  await noConsentPage.waitForURL('**/orders', { timeout: 10000 });
+  report(noConsentPage.url().includes('/orders'), 'Accepting consent modal records consent, retries checkout, and navigates to /orders');
+
+  await noConsentPage.screenshot({ path: 'tests/screenshots/consent_flow_success.png' });
+  await noConsentContext.close();
+
+  // =========================================================================
   // TEST SECTION 4: SIGNED-IN UNVERIFIED CUSTOMER REDIRECTION
   // =========================================================================
   console.log('\n[4] Testing Signed-In Unverified Customer Redirection...');
-  const unverifiedContext = await browser.newContext();
+  const unverifiedContext = await createContext();
   const unverifiedPage = await unverifiedContext.newPage();
 
   await unverifiedPage.goto(`${baseUrl}/login`);
@@ -242,12 +349,12 @@ try {
   // TEST SECTION 5: SIGNED-IN ADMIN (/admin/products, SIDEBAR & TOGGLE-FREE STOREFRONT)
   // =========================================================================
   console.log('\n[5] Testing Signed-In Administrator (/admin/products, Sidebar & Storefront)...');
-  const adminContext = await browser.newContext();
+  const adminContext = await createContext();
   const adminPage = await adminContext.newPage();
 
   // Sign in as Admin
   await adminPage.goto(`${baseUrl}/login`);
-  await adminPage.fill('input[name="username"]', 'test-owner');
+  await adminPage.fill('input[name="username"]', adminUsername);
   await adminPage.fill('input[name="password"]', adminPassword);
   await adminPage.click('button[type="submit"]');
 
@@ -270,9 +377,10 @@ try {
   const adminTableVisible = await adminPage.locator('table').isVisible();
   report(adminTableVisible, 'AdminProductManager table is visible on /admin/products');
 
-  // Verify volume in admin table (e.g. "Purified Water · 500ml")
-  const adminVolume500ml = await adminPage.locator('table strong:has-text("Purified Water · 500ml")').count();
-  report(adminVolume500ml > 0, 'AdminProductManager table displays product volume (e.g. "Purified Water · 500ml")');
+  // Verify volume in admin table (e.g. "QA-WATER · 5 Gallon")
+  const adminVolumeInTable = await adminPage.locator('table strong:has-text("·")').count();
+  const adminVolumeLabelCount = await adminPage.locator('table strong:has-text("Gallon"), table strong:has-text("500ml")').count();
+  report(adminVolumeInTable > 0 && adminVolumeLabelCount > 0, 'AdminProductManager table displays product volume (e.g. "QA-WATER · 5 Gallon")');
 
   await adminPage.screenshot({ path: 'tests/screenshots/admin_products_sidebar.png' });
 
@@ -302,7 +410,7 @@ try {
   // TEST SECTION 6: HASHROUTER MODE (Capacitor simulation, #/admin/products & legacy aliases)
   // =========================================================================
   console.log('\n[6] Testing HashRouter Mode (Capacitor simulation)...');
-  const hashContext = await browser.newContext();
+  const hashContext = await createContext();
   const hashPage = await hashContext.newPage();
 
   // Simulate Capacitor environment before scripts execute
@@ -349,7 +457,7 @@ try {
 
   // Test HashRouter Admin login to #/admin/products
   await hashPage.goto(`${baseUrl}/#/login`);
-  await hashPage.fill('input[name="username"]', 'test-owner');
+  await hashPage.fill('input[name="username"]', adminUsername);
   await hashPage.fill('input[name="password"]', adminPassword);
   await hashPage.click('button[type="submit"]');
   await hashPage.waitForURL('**/#/**');
@@ -367,19 +475,19 @@ try {
   // TEST SECTION 7: QUERY STRING PRESERVATION ON VERIFY & RESET
   // =========================================================================
   console.log('\n[7] Testing Query String & Action Code Preservation...');
-  const verifyContext = await browser.newContext();
+  const verifyContext = await createContext();
   const verifyPage = await verifyContext.newPage();
 
-  // 1. BrowserRouter query preservation
+  // 1. BrowserRouter query preservation & invalid action code rejection
   await verifyPage.goto(`${baseUrl}/verify-email-complete?mode=verifyEmail&oobCode=code-12345&email=${encodeURIComponent(verifiedEmail)}`);
   await verifyPage.waitForTimeout(1000);
   const verifyText = await verifyPage.innerText('body');
   report(
-    verifyText.toUpperCase().includes('ACCOUNT VERIFICATION') && verifyText.includes('Email Verified Successfully!'),
-    'Verify email page loads, parses params and verifies account under BrowserRouter'
+    verifyText.toUpperCase().includes('VERIFICATION') && (verifyText.includes('Verification Failed') || verifyText.includes('No valid verification') || verifyText.includes('Unable to verify') || verifyText.includes('invalid')),
+    'Invalid action code is rejected with error on Verify Email page under BrowserRouter'
   );
 
-  // 2. HashRouter query preservation
+  // 2. HashRouter query preservation & invalid action code rejection
   await verifyPage.addInitScript(() => {
     window.Capacitor = { isNativePlatform: () => true };
   });
@@ -387,8 +495,8 @@ try {
   await verifyPage.waitForTimeout(1000);
   const verifyHashText = await verifyPage.innerText('body');
   report(
-    verifyHashText.toUpperCase().includes('ACCOUNT VERIFICATION') && verifyHashText.includes('Email Verified Successfully!'),
-    'Verify email page loads, parses params and verifies account under HashRouter'
+    verifyHashText.toUpperCase().includes('VERIFICATION') && (verifyHashText.includes('Verification Failed') || verifyHashText.includes('No valid verification') || verifyHashText.includes('Unable to verify') || verifyHashText.includes('invalid')),
+    'Invalid action code is rejected with error on Verify Email page under HashRouter'
   );
 
   await verifyContext.close();

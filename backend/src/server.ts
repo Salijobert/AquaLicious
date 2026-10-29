@@ -2,7 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { config } from './config/index.js';
+import { config, prisma } from './config/index.js';
 import { Mailer } from './services/mailer.js';
 import { AccountCleanupService } from './services/accountCleanupService.js';
 import { securityHeaders, corsHandler, apiLimiter } from './middleware/security.js';
@@ -83,6 +83,17 @@ export function createApp() {
     next();
   });
 
+  // Legacy .html HTTP 301 Permanent Redirects (strictly preserves query strings)
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (req.method === 'GET' && /\.html$/i.test(req.path) && !req.path.includes('/assets/')) {
+      const cleanPath = req.path.replace(/\.html$/i, '');
+      const targetPath = cleanPath === '/index' ? '/' : cleanPath;
+      const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+      return res.redirect(301, targetPath + query);
+    }
+    next();
+  });
+
   // Fallback for single page application (SPA) routing
   app.get('*', (req: Request, res: Response, next: NextFunction) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/backend/api') || req.path.endsWith('.php')) {
@@ -96,15 +107,49 @@ export function createApp() {
     });
   });
 
-  // Global Error Handler
-  app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  // Global Error Handler with Transient Database Connection Reset Recovery
+  app.use(async (err: any, req: Request, res: Response, next: NextFunction) => {
     console.error('Unhandled server error:', err);
+    const isDbReset =
+      err?.code === 'P1001' ||
+      err?.code === 'P1002' ||
+      err?.code === 'P1017' ||
+      err?.name === 'PrismaClientInitializationError' ||
+      err?.name === 'PrismaClientRustPanicError' ||
+      err?.message?.includes('closed the connection') ||
+      err?.message?.includes('Connection terminated') ||
+      err?.message?.includes('ECONNRESET') ||
+      err?.message?.includes('ECONNREFUSED');
+
+    if (isDbReset) {
+      console.warn('[DB Recovery] Transient database connection reset detected. Triggering reconnection and returning 503.');
+      prisma.$disconnect().then(() => prisma.$connect()).catch((reconnectErr: any) => {
+        console.error('[DB Recovery] Reconnection retry error:', reconnectErr.message);
+      });
+      res.setHeader('Retry-After', '1');
+      return res.status(503).json({
+        error: 'Database connection temporarily unavailable. Please retry.',
+        code: 'DATABASE_UNAVAILABLE'
+      });
+    }
+
     const status = err.status || 500;
     res.status(status).json({ error: err.message || 'Internal server error' });
   });
 
   return app;
 }
+
+process.on('unhandledRejection', (reason: any) => {
+  console.warn('[Process] Caught unhandled rejection (recovering without crash):', reason?.message || reason);
+  if (
+    reason?.code === 'P1017' ||
+    reason?.message?.includes('closed the connection') ||
+    reason?.message?.includes('ECONNRESET')
+  ) {
+    prisma.$disconnect().then(() => prisma.$connect()).catch(() => {});
+  }
+});
 
 const app = createApp();
 app.listen(config.port, () => {

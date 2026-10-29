@@ -6,49 +6,17 @@ export interface ServerNode {
   latencyMs?: number;
 }
 
-const isCapacitor = typeof window !== 'undefined' && (
-  (window as any).Capacitor !== undefined ||
-  window.location.protocol === 'capacitor:' ||
-  window.location.protocol === 'file:'
-);
-const isBrowserRemote = isCapacitor || (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1');
-const ngrokUrl = 'https://muscular-donator-uncloak.ngrok-free.dev';
-
-const DEFAULT_SERVERS: ServerNode[] = [
-  {
-    url: (import.meta as any).env?.VITE_API_URL || (isBrowserRemote ? ngrokUrl : 'http://localhost:8088'),
-    label: isBrowserRemote ? 'ngrok Public Endpoint' : 'Local Node (8088)',
-    isPrimary: true,
-    status: 'checking'
-  },
-  {
-    url: ngrokUrl,
-    label: 'ngrok Tunnel (Public)',
-    isPrimary: false,
-    status: 'checking'
-  },
-  {
-    url: 'http://localhost:8088',
-    label: 'Local Node (8088)',
-    isPrimary: false,
-    status: 'checking'
-  }
-];
-
 export const EXPECTED_CLUSTER_ID = 'aqualicious-cluster-primary';
 
+// API base URL configured strictly via build-time VITE_API_URL
+const apiBaseUrl = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
+
 class MultiServerResolver {
-  private servers: ServerNode[];
-  private activeIndex: number = 0;
+  private apiBaseUrl: string;
   private token: string = '';
 
   constructor() {
-    // Purge any legacy client-side server override from localStorage for security
-    try {
-      localStorage.removeItem('aq_servers');
-    } catch {}
-
-    this.servers = DEFAULT_SERVERS;
+    this.apiBaseUrl = apiBaseUrl;
     this.token = localStorage.getItem('aq_token') || sessionStorage.getItem('aq_token') || '';
   }
 
@@ -66,21 +34,26 @@ class MultiServerResolver {
   }
 
   public getServers(): ServerNode[] {
-    return [...this.servers];
+    return [
+      {
+        url: this.apiBaseUrl || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8088'),
+        label: 'API Server',
+        isPrimary: true,
+        status: 'online'
+      }
+    ];
   }
 
   public getActiveServer(): string {
-    return this.servers[this.activeIndex]?.url || 'http://localhost:8088';
+    return this.apiBaseUrl || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8088');
   }
 
   public async verifyCluster(serverUrl: string): Promise<boolean> {
     try {
-      const start = Date.now();
       const res = await fetch(`${serverUrl.replace(/\/$/, '')}/api/config`, {
         signal: AbortSignal.timeout(5000),
         headers: {
-          'X-AquaLicious-Cluster-Id': EXPECTED_CLUSTER_ID,
-          'ngrok-skip-browser-warning': 'true'
+          'X-AquaLicious-Cluster-Id': EXPECTED_CLUSTER_ID
         }
       });
       if (!res.ok) return false;
@@ -92,8 +65,8 @@ class MultiServerResolver {
   }
 
   /**
-   * Dispatches an HTTP request with automatic cluster-aware failover.
-   * Preserves idempotency keys across server retries.
+   * Dispatches an HTTP request directly to the configured API base URL.
+   * Injects authorization and idempotency headers.
    */
   public async request<T = any>(
     endpoint: string,
@@ -106,67 +79,43 @@ class MultiServerResolver {
   ): Promise<T> {
     const { method = 'GET', data, headers = {}, idempotencyKey } = options;
     const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    const targetUrl = `${this.apiBaseUrl}${cleanEndpoint}`;
 
-    let lastError: Error | null = null;
-    const startIndex = this.activeIndex;
-    const serverCount = this.servers.length;
+    const reqHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-AquaLicious-Cluster-Id': EXPECTED_CLUSTER_ID,
+      ...headers
+    };
 
-    for (let attempt = 0; attempt < serverCount; attempt++) {
-      const idx = (startIndex + attempt) % serverCount;
-      const targetServer = this.servers[idx]!.url.replace(/\/$/, '');
-
-      try {
-        const reqHeaders: Record<string, string> = {
-          'Content-Type': 'application/json',
-          'X-AquaLicious-Cluster-Id': EXPECTED_CLUSTER_ID,
-          'ngrok-skip-browser-warning': 'true',
-          ...headers
-        };
-
-        if (this.token) {
-          reqHeaders['Authorization'] = `Bearer ${this.token}`;
-        }
-
-        if (idempotencyKey) {
-          reqHeaders['Idempotency-Key'] = idempotencyKey;
-        }
-
-        const res = await fetch(`${targetServer}${cleanEndpoint}`, {
-          method,
-          headers: reqHeaders,
-          body: data ? JSON.stringify(data) : undefined,
-          signal: AbortSignal.timeout(10000)
-        });
-
-        // Business errors (400, 401, 403, 404, 409, 422) come from the database
-        // and must NOT trigger failover.
-        if (res.status < 500 && res.status !== 408) {
-          const json = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            const err = new Error(json.error || `Request failed with status ${res.status}`);
-            (err as any).status = res.status;
-            throw err;
-          }
-          this.activeIndex = idx;
-          return json as T;
-        }
-
-        // Server returned 5xx or gateway error; try next failover node
-        console.warn(`Server ${targetServer} responded with ${res.status}. Attempting failover...`);
-      } catch (err: any) {
-        // If it's a client business error, rethrow immediately
-        if (err.status && err.status < 500) {
-          throw err;
-        }
-        console.warn(`Cannot reach node ${targetServer}: ${err.message}. Trying next node...`);
-        lastError = err;
-      }
+    if (this.token) {
+      reqHeaders['Authorization'] = `Bearer ${this.token}`;
     }
 
-    throw new Error(
-      lastError?.message ||
-        'All configured AquaLicious cluster servers are unreachable. Please check your network connection.'
-    );
+    if (idempotencyKey) {
+      reqHeaders['Idempotency-Key'] = idempotencyKey;
+    }
+
+    const res = await fetch(targetUrl, {
+      method,
+      headers: reqHeaders,
+      body: data ? JSON.stringify(data) : undefined,
+      signal: AbortSignal.timeout(10000)
+    });
+
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (res.status === 403 && json.code === 'CONSENT_REQUIRED') {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('aqualicious:consent-required'));
+        }
+      }
+      const err = new Error(json.error || `Request failed with status ${res.status}`);
+      (err as any).status = res.status;
+      (err as any).code = json.code;
+      throw err;
+    }
+
+    return json as T;
   }
 }
 

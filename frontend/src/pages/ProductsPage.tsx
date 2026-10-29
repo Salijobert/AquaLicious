@@ -145,7 +145,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
   );
 
   return (
-    <div className="space-y-8 pt-4 pb-16 max-w-7xl mx-auto px-4 sm:px-8">
+    <main id="main-content" className="space-y-8 pt-4 pb-16 max-w-7xl mx-auto px-4 sm:px-8">
       <div id="page-error" className="text-red-500 text-xs empty:hidden">
         {error ? (error as any).message : ''}
       </div>
@@ -465,7 +465,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
                     <Droplet className="w-7 h-7 text-[#1565c0] mx-auto" />
                     <div>
                       <div className="text-xs font-bold text-[#0b3d91]">Real-Time Order Tracking</div>
-                      <p className="text-[11px] text-slate-500 mt-1 leading-tight">
+                      <p className="text-[11px] text-slate-600 mt-1 leading-tight">
                         Sign in to monitor order progress, save delivery details, and view past orders.
                       </p>
                     </div>
@@ -516,7 +516,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
                     {s.step}
                   </div>
                   <div className="text-xs font-bold text-[#0b3d91]">{s.title}</div>
-                  <p className="text-[11px] text-slate-500 leading-relaxed">{s.desc}</p>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">{s.desc}</p>
                 </div>
               ))}
             </div>
@@ -614,7 +614,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
                           <span
                             className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                               isOutOfStock
-                                ? 'bg-red-50 text-red-600 border border-red-200'
+                                ? 'bg-red-50 text-red-700 border border-red-200 font-bold'
                                 : isLowStock
                                 ? 'bg-amber-50 text-amber-700 border border-amber-200'
                                 : 'bg-green-50 text-green-700 border border-green-200'
@@ -631,11 +631,11 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
                         <h3 className="font-bold text-slate-900 text-sm leading-snug group-hover:text-[#1565c0] transition-colors">
                           {product.name}{product.volume_label ? ` · ${product.volume_label}` : ''}
                         </h3>
-                        <div className="text-[11px] text-slate-400 mt-0.5 font-mono">
+                        <div className="text-[11px] text-slate-600 mt-0.5 font-mono font-medium">
                           {product.sku} · {product.volume_label || '5-Gallon'}
                         </div>
 
-                        <div className="mt-2 text-[10px] text-slate-500 flex items-center gap-1">
+                        <div className="mt-2 text-[10px] text-slate-600 flex items-center gap-1">
                           <CheckCircle2 className="w-3 h-3 text-[#2e7d32]" />
                           <span>Clean & Refreshing</span>
                         </div>
@@ -644,7 +644,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
                           <span className="text-2xl font-black text-[#0b3d91]">
                             ₱{Number(product.selling_price).toFixed(2)}
                           </span>
-                          <span className="text-[11px] text-slate-400 font-semibold">/ unit</span>
+                          <span className="text-[11px] text-slate-600 font-semibold">/ unit</span>
                         </div>
                       </div>
 
@@ -776,7 +776,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
               </div>
             </div>
 
-            <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-2 text-[11px] text-slate-400">
+            <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-2 text-[11px] text-slate-600">
               <div>© 2026 AquaLicious Water Refilling Station. All rights reserved.</div>
               <div>Pure · Safe · Refreshed</div>
             </div>
@@ -786,6 +786,6 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
       {/* Reusable Modals */}
       <AboutStationModal isOpen={isAboutModalOpen} onClose={() => setIsAboutModalOpen(false)} />
       <CustomerAppModal isOpen={isAppModalOpen} onClose={() => setIsAppModalOpen(false)} />
-    </div>
+    </main>
   );
 };

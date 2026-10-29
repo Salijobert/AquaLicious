@@ -1,0 +1,2 @@
+import {request,check,prisma} from './common.mjs';
+const rs=[];for(let i=0;i<32;i++)rs.push(...await Promise.all(Array.from({length:10},()=>request('/backend/api/auth.php',{base:'http://127.0.0.1:18089',method:'POST',body:{username:'qa-invalid',password:'invalid'}}))));check('3.10',rs.some(r=>r.status===429),'Legacy login alias is rate limited',`320 production-mode requests; 429=${rs.filter(r=>r.status===429).length};403=${rs.filter(r=>r.status===403).length}`,'High');await prisma.$disconnect();

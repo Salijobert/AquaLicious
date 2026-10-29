@@ -65,7 +65,7 @@ export const CustomerNavbar: React.FC<CustomerNavbarProps> = ({ cartCount = 0, o
         </div>
 
         {/* Desktop Nav Links */}
-        <div className="hidden md:flex items-center gap-8 text-xs font-semibold text-[#78909c]">
+        <div className="hidden md:flex items-center gap-8 text-xs font-semibold text-slate-600">
           <Link
             to="/"
             onClick={handleProductsClick}
@@ -82,9 +82,9 @@ export const CustomerNavbar: React.FC<CustomerNavbarProps> = ({ cartCount = 0, o
           {!isCapacitor && (
             <button
               onClick={() => setIsAppOpen(true)}
-              className="hover:text-[#1565c0] transition-colors flex items-center gap-1.5 text-[#1e88e5] cursor-pointer"
+              className="hover:text-[#0b3d91] transition-colors flex items-center gap-1.5 text-[#1565c0] cursor-pointer font-bold"
             >
-              <Smartphone className="w-4 h-4" /> Customer App
+              <Smartphone className="w-4 h-4 text-[#1565c0]" /> Customer App
             </button>
           )}
         </div>

@@ -38,17 +38,18 @@ export function sanitize(dirty: string | null | undefined): string {
   }).trim();
 }
 
-// Strict CORS Handler
+// Strict CORS Handler: exact-origin whitelist from env (no .vercel.app or .ngrok wildcards), keeps https://localhost / capacitor://localhost for Capacitor APK
 export const corsHandler = (req: Request, res: Response, next: NextFunction) => {
   const origin = req.headers.origin;
   const isAllowedOrigin = (orig: string) => {
     if (!orig) return true;
     try {
       const parsed = new URL(orig);
-      // Allow localhost on any port for dev, tests, capacitor
-      if (['localhost', '127.0.0.1'].includes(parsed.hostname)) return true;
+      // Allow Capacitor mobile webview origins
       if (orig === 'https://localhost' || orig === 'capacitor://localhost') return true;
-      if (parsed.hostname.endsWith('.vercel.app') || parsed.hostname.endsWith('.ngrok-free.dev') || parsed.hostname.endsWith('.ngrok.app')) return true;
+      // Allow localhost on any port for non-production development/test
+      if (config.nodeEnv !== 'production' && ['localhost', '127.0.0.1'].includes(parsed.hostname)) return true;
+      // Exact-origin whitelist check from CORS_ORIGINS
       return config.corsOrigins.includes(orig);
     } catch {
       return false;
@@ -63,7 +64,7 @@ export const corsHandler = (req: Request, res: Response, next: NextFunction) => 
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Idempotency-Key, X-AquaLicious-Cluster-Id, ngrok-skip-browser-warning');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Idempotency-Key, X-AquaLicious-Cluster-Id');
   }
 
   if (req.method === 'OPTIONS') {

@@ -50,6 +50,8 @@ This guide documents deploying the migrated AquaLicious system (React 18, Expres
 PORT=8088
 DATABASE_URL="postgresql://aqualicious:your_secure_password@localhost:5432/aqualicious_pg?schema=public"
 JWT_SECRET="generate-a-random-32-byte-hex-string"
+ADMIN_FIREBASE_UIDS="your-verified-admin-firebase-auth-uid,optional-second-admin-uid"
+ADMIN_FIREBASE_UID="your-verified-admin-firebase-auth-uid"
 CLUSTER_ID="aqualicious-cluster-primary"
 CORS_ORIGINS="http://localhost:5173,http://localhost:8088,http://localhost:8090,https://localhost,capacitor://localhost"
 GCASH_QR_URL="https://your-domain.example/merchant/gcash.png"

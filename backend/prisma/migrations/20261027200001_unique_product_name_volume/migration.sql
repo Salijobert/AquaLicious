@@ -13,11 +13,14 @@ BEGIN
     ) conflicts;
 
     IF conflict_count > 0 THEN
-        SELECT string_agg(lower(trim("name")) || ' (' || lower(trim("volumeLabel")) || ') [count: ' || count(*) || ']', '; ')
+        SELECT string_agg(item_desc, '; ')
         INTO conflict_details
-        FROM "products"
-        GROUP BY lower(trim("name")), lower(trim("volumeLabel"))
-        HAVING count(*) > 1;
+        FROM (
+            SELECT lower(trim("name")) || ' (' || lower(trim("volumeLabel")) || ') [count: ' || count(*) || ']' AS item_desc
+            FROM "products"
+            GROUP BY lower(trim("name")), lower(trim("volumeLabel"))
+            HAVING count(*) > 1
+        ) sub;
 
         RAISE EXCEPTION 'MIGRATION ABORTED: Found % conflicting product duplicate(s): %. Resolve duplicate products before applying unique index.', conflict_count, conflict_details;
     END IF;

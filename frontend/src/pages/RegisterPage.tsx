@@ -62,6 +62,7 @@ export const RegisterPage: React.FC = () => {
       className="min-h-screen flex flex-col justify-center items-center px-4 py-12"
       style={{ background: 'linear-gradient(180deg, #e3eefa 0%, #d3e4f6 100%)' }}
     >
+      <main id="main-content" className="w-full max-w-md">
       <div className="card w-full max-w-md bg-white shadow-xl rounded-2xl border border-gray-200 p-8">
         <div className="text-center mb-6">
           <div className="flex justify-center mb-3">
@@ -71,16 +72,16 @@ export const RegisterPage: React.FC = () => {
               </svg>
             </div>
           </div>
-          <h2 className="font-serif text-2xl font-bold text-[#0b3d91] tracking-tight">
+          <h1 className="font-serif text-2xl font-bold text-[#0b3d91] tracking-tight">
             AquaLicious
-          </h2>
-          <p className="text-xs text-gray-500 uppercase font-semibold tracking-wider mt-1">
+          </h1>
+          <p className="text-xs text-slate-600 uppercase font-semibold tracking-wider mt-1">
             Create Customer Account
           </p>
         </div>
 
         {error && (
-          <div className="p-3 mb-4 bg-red-50 text-red-600 rounded-lg text-xs flex items-center gap-2 border border-red-200">
+          <div className="p-3 mb-4 bg-red-50 text-red-700 rounded-lg text-xs flex items-center gap-2 border border-red-200 font-medium">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{error}</span>
           </div>
@@ -170,6 +171,7 @@ export const RegisterPage: React.FC = () => {
           </Link>
         </div>
       </div>
+      </main>
 
       {/* Mandatory Terms & Data Privacy Act of 2012 Consent Modal */}
       <TermsPrivacyModal

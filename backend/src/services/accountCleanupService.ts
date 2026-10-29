@@ -143,8 +143,11 @@ export class AccountCleanupService {
           continue;
         }
 
-        // Safety Check 3: Check Firebase status; if user verified in Firebase, sync to PostgreSQL and preserve
+        // Safety Check 3: Check Firebase status; if user verified in Firebase, sync to PostgreSQL and preserve.
+        // On any Firebase Admin error other than a definite 'auth/user-not-found', fail closed: skip deletion!
         let isVerifiedInFirebase = false;
+        let shouldSkipUser = false;
+
         if (admin.apps.length > 0 && user.firebaseUid) {
           try {
             const fbUser = await admin.auth().getUser(user.firebaseUid);
@@ -152,10 +155,21 @@ export class AccountCleanupService {
               isVerifiedInFirebase = true;
             }
           } catch (fbErr: any) {
-            if (fbErr.code !== 'auth/user-not-found') {
-              console.warn(`[AccountCleanup] Firebase check warning for ${user.firebaseUid}:`, fbErr.message);
+            if (fbErr.code === 'auth/user-not-found') {
+              console.log(`[AccountCleanup] User ${user.firebaseUid} confirmed not found in Firebase Auth.`);
+            } else {
+              // Any transient error (network error, rate limit, socket hang up) -> FAIL CLOSED (skip deletion)
+              const err = `FIREBASE CHECK ERROR for User #${user.id} (${user.firebaseUid}): ${fbErr.message} (code: ${fbErr.code}). Failing closed: skipping user deletion.`;
+              console.warn(`[AccountCleanup] ${err}`);
+              result.errors.push(err);
+              result.skippedCount++;
+              shouldSkipUser = true;
             }
           }
+        }
+
+        if (shouldSkipUser) {
+          continue;
         }
 
         if (isVerifiedInFirebase) {
@@ -184,7 +198,11 @@ export class AccountCleanupService {
               console.log(`[AccountCleanup] Deleted Firebase user ${user.firebaseUid}`);
             } catch (delErr: any) {
               if (delErr.code !== 'auth/user-not-found') {
-                console.warn(`[AccountCleanup] Firebase user delete warning (${user.firebaseUid}):`, delErr.message);
+                const err = `FIREBASE DELETE ERROR for User #${user.id} (${user.firebaseUid}): ${delErr.message}. Failing closed: skipping database deletion.`;
+                console.warn(`[AccountCleanup] ${err}`);
+                result.errors.push(err);
+                result.skippedCount++;
+                continue;
               }
             }
           }

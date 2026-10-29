@@ -14,6 +14,8 @@ import { ProductsPage } from './pages/ProductsPage.js';
 import { OrdersPage } from './pages/OrdersPage.js';
 import { RequireAuth, RequireRole, PageLoadingSpinner } from './components/RouteGuards.js';
 import { useCreateOrder } from './api/client.js';
+import { resolver } from './api/multiServerResolver.js';
+import { TermsPrivacyModal } from './components/TermsPrivacyModal.js';
 import { ShoppingCart, X, Plus, Minus, Droplet, AlertTriangle } from 'lucide-react';
 
 // Code-split admin pages with React.lazy
@@ -23,6 +25,12 @@ const InventoryPage = lazy(() => import('./pages/InventoryPage.js').then((m) => 
 const AdminProductsPage = lazy(() => import('./pages/AdminProductsPage.js').then((m) => ({ default: m.AdminProductsPage })));
 const ReportsPage = lazy(() => import('./pages/ReportsPage.js').then((m) => ({ default: m.ReportsPage })));
 const UsersPage = lazy(() => import('./pages/UsersPage.js').then((m) => ({ default: m.UsersPage })));
+
+// Helper component preserving query strings and hash parameters on legacy alias redirections
+const PreserveQueryRedirect: React.FC<{ to: string }> = ({ to }) => {
+  const location = useLocation();
+  return <Navigate to={{ pathname: to, search: location.search, hash: location.hash }} replace />;
+};
 
 interface CartItem {
   id: number;
@@ -45,6 +53,14 @@ export const App: React.FC = () => {
   const [address, setAddress] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'GCASH_QR' | 'MAYA_QR'>('CASH');
   const [showSplash, setShowSplash] = useState(true);
+  const [isConsentModalOpen, setIsConsentModalOpen] = useState(false);
+  const [isSubmittingConsent, setIsSubmittingConsent] = useState(false);
+
+  useEffect(() => {
+    const onConsentReq = () => setIsConsentModalOpen(true);
+    window.addEventListener('aqualicious:consent-required', onConsentReq);
+    return () => window.removeEventListener('aqualicious:consent-required', onConsentReq);
+  }, []);
 
   // Detach splash screen after initial mount
   useEffect(() => {
@@ -149,6 +165,10 @@ export const App: React.FC = () => {
       setIsCartOpen(false);
       navigate('/orders');
     } catch (err: any) {
+      if (err.code === 'CONSENT_REQUIRED' || (err.status === 403 && err.message?.includes('Consent'))) {
+        setIsConsentModalOpen(true);
+        return;
+      }
       alert(err.message || 'Checkout failed');
     }
   };
@@ -250,49 +270,49 @@ export const App: React.FC = () => {
               <Route path="/users" element={<RequireRole allowedRoles={['Administrator']} fallbackPath="/"><UsersPage /></RequireRole>} />
 
               {/* CLIENT-SIDE FALLBACK ALIAS REDIRECTS (FOR HASHROUTER & LEGACY BOOKMARKS) */}
-              <Route path="/index.html" element={<Navigate to="/" replace />} />
-              <Route path="/products" element={<Navigate to="/" replace />} />
-              <Route path="/products.html" element={<Navigate to="/" replace />} />
-              <Route path="/frontend/pages/products.html" element={<Navigate to="/" replace />} />
+              <Route path="/index.html" element={<PreserveQueryRedirect to="/" />} />
+              <Route path="/products" element={<PreserveQueryRedirect to="/" />} />
+              <Route path="/products.html" element={<PreserveQueryRedirect to="/" />} />
+              <Route path="/frontend/pages/products.html" element={<PreserveQueryRedirect to="/" />} />
 
-              <Route path="/admin/products.html" element={<Navigate to="/admin/products" replace />} />
-              <Route path="/frontend/pages/admin/products.html" element={<Navigate to="/admin/products" replace />} />
+              <Route path="/admin/products.html" element={<PreserveQueryRedirect to="/admin/products" />} />
+              <Route path="/frontend/pages/admin/products.html" element={<PreserveQueryRedirect to="/admin/products" />} />
 
-              <Route path="/login.html" element={<Navigate to="/login" replace />} />
-              <Route path="/frontend/pages/login.html" element={<Navigate to="/login" replace />} />
+              <Route path="/login.html" element={<PreserveQueryRedirect to="/login" />} />
+              <Route path="/frontend/pages/login.html" element={<PreserveQueryRedirect to="/login" />} />
 
-              <Route path="/register.html" element={<Navigate to="/register" replace />} />
-              <Route path="/frontend/pages/register.html" element={<Navigate to="/register" replace />} />
+              <Route path="/register.html" element={<PreserveQueryRedirect to="/register" />} />
+              <Route path="/frontend/pages/register.html" element={<PreserveQueryRedirect to="/register" />} />
 
-              <Route path="/verify-email.html" element={<Navigate to="/verify-email" replace />} />
-              <Route path="/frontend/pages/verify-email.html" element={<Navigate to="/verify-email" replace />} />
+              <Route path="/verify-email.html" element={<PreserveQueryRedirect to="/verify-email" />} />
+              <Route path="/frontend/pages/verify-email.html" element={<PreserveQueryRedirect to="/verify-email" />} />
 
-              <Route path="/verify-email-complete.html" element={<Navigate to="/verify-email-complete" replace />} />
-              <Route path="/frontend/pages/verify-email-complete.html" element={<Navigate to="/verify-email-complete" replace />} />
+              <Route path="/verify-email-complete.html" element={<PreserveQueryRedirect to="/verify-email-complete" />} />
+              <Route path="/frontend/pages/verify-email-complete.html" element={<PreserveQueryRedirect to="/verify-email-complete" />} />
 
-              <Route path="/forgot-password.html" element={<Navigate to="/forgot-password" replace />} />
-              <Route path="/frontend/pages/forgot-password.html" element={<Navigate to="/forgot-password" replace />} />
+              <Route path="/forgot-password.html" element={<PreserveQueryRedirect to="/forgot-password" />} />
+              <Route path="/frontend/pages/forgot-password.html" element={<PreserveQueryRedirect to="/forgot-password" />} />
 
-              <Route path="/reset-password-complete.html" element={<Navigate to="/reset-password-complete" replace />} />
-              <Route path="/frontend/pages/reset-password-complete.html" element={<Navigate to="/reset-password-complete" replace />} />
+              <Route path="/reset-password-complete.html" element={<PreserveQueryRedirect to="/reset-password-complete" />} />
+              <Route path="/frontend/pages/reset-password-complete.html" element={<PreserveQueryRedirect to="/reset-password-complete" />} />
 
-              <Route path="/dashboard.html" element={<Navigate to="/dashboard" replace />} />
-              <Route path="/frontend/pages/dashboard.html" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard.html" element={<PreserveQueryRedirect to="/dashboard" />} />
+              <Route path="/frontend/pages/dashboard.html" element={<PreserveQueryRedirect to="/dashboard" />} />
 
-              <Route path="/sales.html" element={<Navigate to="/sales" replace />} />
-              <Route path="/frontend/pages/sales.html" element={<Navigate to="/sales" replace />} />
+              <Route path="/sales.html" element={<PreserveQueryRedirect to="/sales" />} />
+              <Route path="/frontend/pages/sales.html" element={<PreserveQueryRedirect to="/sales" />} />
 
-              <Route path="/inventory.html" element={<Navigate to="/inventory" replace />} />
-              <Route path="/frontend/pages/inventory.html" element={<Navigate to="/inventory" replace />} />
+              <Route path="/inventory.html" element={<PreserveQueryRedirect to="/inventory" />} />
+              <Route path="/frontend/pages/inventory.html" element={<PreserveQueryRedirect to="/inventory" />} />
 
-              <Route path="/orders.html" element={<Navigate to="/orders" replace />} />
-              <Route path="/frontend/pages/orders.html" element={<Navigate to="/orders" replace />} />
+              <Route path="/orders.html" element={<PreserveQueryRedirect to="/orders" />} />
+              <Route path="/frontend/pages/orders.html" element={<PreserveQueryRedirect to="/orders" />} />
 
-              <Route path="/reports.html" element={<Navigate to="/reports" replace />} />
-              <Route path="/frontend/pages/reports.html" element={<Navigate to="/reports" replace />} />
+              <Route path="/reports.html" element={<PreserveQueryRedirect to="/reports" />} />
+              <Route path="/frontend/pages/reports.html" element={<PreserveQueryRedirect to="/reports" />} />
 
-              <Route path="/users.html" element={<Navigate to="/users" replace />} />
-              <Route path="/frontend/pages/users.html" element={<Navigate to="/users" replace />} />
+              <Route path="/users.html" element={<PreserveQueryRedirect to="/users" />} />
+              <Route path="/frontend/pages/users.html" element={<PreserveQueryRedirect to="/users" />} />
 
               {/* Catch-all 404 / Unknown route redirection */}
               <Route
@@ -453,6 +473,41 @@ export const App: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Mandatory Terms & Data Privacy Act Consent Modal */}
+      <TermsPrivacyModal
+        isOpen={isConsentModalOpen}
+        onClose={() => setIsConsentModalOpen(false)}
+        submitLabel="I Agree & Continue"
+        onAccept={async () => {
+          setIsSubmittingConsent(true);
+          try {
+            await resolver.request('/api/auth/consent', {
+              method: 'POST',
+              data: { consent: true, termsVersion: '2026-v1.0' }
+            });
+            setIsConsentModalOpen(false);
+            if (cart.length > 0) {
+              await createOrderMutation.mutateAsync({
+                items: cart.map((i) => ({ product_id: i.id, qty: i.qty })),
+                fulfillment,
+                address: fulfillment === 'DELIVERY' ? address : undefined,
+                method: paymentMethod,
+                expected_total: cartTotal.toFixed(2),
+                request_key: crypto.randomUUID()
+              });
+              setCart([]);
+              setIsCartOpen(false);
+              navigate('/orders');
+            }
+          } catch (consentErr: any) {
+            alert(consentErr.message || 'Failed to record consent');
+          } finally {
+            setIsSubmittingConsent(false);
+          }
+        }}
+        isSubmitting={isSubmittingConsent}
+      />
     </div>
   );
 };

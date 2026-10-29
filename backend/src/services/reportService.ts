@@ -1,6 +1,21 @@
 import { prisma } from '../config/index.js';
 import { OrderStatus, Role } from '@prisma/client';
-import { subDays, format, startOfDay, endOfDay } from 'date-fns';
+
+const MANILA_TZ = 'Asia/Manila';
+const manilaFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: MANILA_TZ,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit'
+});
+
+export function toManilaDateString(date: Date): string {
+  return manilaFormatter.format(date);
+}
+
+export function getManilaMidnightUtc(manilaDateStr: string): Date {
+  return new Date(`${manilaDateStr}T00:00:00+08:00`);
+}
 
 export class ReportService {
   static async getAnalytics(role: Role, days = 30) {
@@ -12,8 +27,12 @@ export class ReportService {
 
     const clampedDays = Math.max(7, Math.min(365, Number(days) || 30));
     const now = new Date();
-    const todayStart = startOfDay(now);
-    const startDate = startOfDay(subDays(now, clampedDays));
+    const todayManilaStr = toManilaDateString(now);
+    const todayStart = getManilaMidnightUtc(todayManilaStr);
+
+    // Calculate start date strictly in Asia/Manila calendar (clampedDays ago)
+    const manilaDayMs = 24 * 60 * 60 * 1000;
+    const startDate = new Date(todayStart.getTime() - (clampedDays - 1) * manilaDayMs);
 
     // Fetch active completed sales orders
     const orders = await prisma.salesOrder.findMany({
@@ -26,20 +45,21 @@ export class ReportService {
       }
     });
 
-    // 1. Calculate Today's KPIs
+    // 1. Calculate Today's KPIs in Asia/Manila timezone
     const todayOrders = orders.filter(o => o.createdAt >= todayStart);
     const todayRevenue = todayOrders.reduce((sum, o) => sum + Number(o.totalAmount), 0);
     const todayTransactions = todayOrders.length;
 
-    // 2. Build Daily Series including Zero-Sales Days
+    // 2. Build Daily Series including Zero-Sales Days (Asia/Manila calendar)
     const seriesMap = new Map<string, { date: string; revenue: number; transactions: number; units: number; profit: number }>();
     for (let i = clampedDays - 1; i >= 0; i--) {
-      const d = format(subDays(now, i), 'yyyy-MM-dd');
+      const dayDate = new Date(todayStart.getTime() - i * manilaDayMs);
+      const d = toManilaDateString(dayDate);
       seriesMap.set(d, { date: d, revenue: 0, transactions: 0, units: 0, profit: 0 });
     }
 
     orders.forEach(o => {
-      const d = format(o.createdAt, 'yyyy-MM-dd');
+      const d = toManilaDateString(o.createdAt);
       const entry = seriesMap.get(d);
       if (entry) {
         entry.revenue += Number(o.totalAmount);
@@ -55,10 +75,11 @@ export class ReportService {
 
     const series = Array.from(seriesMap.values());
 
-    // 3. 7-Day SMA & Linear Regression (Last 7 COMPLETED days, excluding today)
+    // 3. 7-Day SMA & Linear Regression (Last 7 COMPLETED days in Manila calendar, excluding today)
     const sevenCompletedDays: number[] = [];
     for (let i = 7; i >= 1; i--) {
-      const d = format(subDays(now, i), 'yyyy-MM-dd');
+      const dayDate = new Date(todayStart.getTime() - i * manilaDayMs);
+      const d = toManilaDateString(dayDate);
       const val = seriesMap.get(d)?.revenue || 0;
       sevenCompletedDays.push(val);
     }

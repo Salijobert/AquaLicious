@@ -86,6 +86,7 @@ export const LoginPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-white text-slate-700 flex flex-col font-sans pt-16">
+      <main id="main-content" className="flex-1 flex flex-col justify-center">
       {/* ─── HERO & LOGIN SECTION ─── */}
       <section className="pt-8 pb-16 px-6 sm:px-12 max-w-7xl mx-auto w-full flex-1 grid lg:grid-cols-2 gap-12 items-center">
         {/* Left Hero Content: Customer-Facing Mineral Water Pitch */}
@@ -98,7 +99,7 @@ export const LoginPage: React.FC = () => {
             {COPY.LOGIN.HERO_HEADLINE}
           </h1>
 
-          <p className="text-sm sm:text-base text-[#78909c] leading-relaxed max-w-lg">
+          <p className="text-sm sm:text-base text-slate-600 leading-relaxed max-w-lg">
             {COPY.LOGIN.HERO_SUBTEXT}
           </p>
 
@@ -107,17 +108,17 @@ export const LoginPage: React.FC = () => {
             <div className="p-3 bg-[#f5f7fa] rounded-xl border border-[#eceff1] text-center">
               <ShieldCheck className="w-5 h-5 text-[#1565c0] mx-auto mb-1" />
               <div className="text-[11px] font-bold text-[#0b3d91]">{COPY.LOGIN.BENEFITS[0].title}</div>
-              <div className="text-[9px] text-[#78909c]">{COPY.LOGIN.BENEFITS[0].sub}</div>
+              <div className="text-[9px] text-slate-600 font-medium">{COPY.LOGIN.BENEFITS[0].sub}</div>
             </div>
             <div className="p-3 bg-[#f5f7fa] rounded-xl border border-[#eceff1] text-center">
-              <Zap className="w-5 h-5 text-[#1e88e5] mx-auto mb-1" />
+              <Zap className="w-5 h-5 text-[#1565c0] mx-auto mb-1" />
               <div className="text-[11px] font-bold text-[#0b3d91]">{COPY.LOGIN.BENEFITS[1].title}</div>
-              <div className="text-[9px] text-[#78909c]">{COPY.LOGIN.BENEFITS[1].sub}</div>
+              <div className="text-[9px] text-slate-600 font-medium">{COPY.LOGIN.BENEFITS[1].sub}</div>
             </div>
             <div className="p-3 bg-[#f5f7fa] rounded-xl border border-[#eceff1] text-center">
               <Truck className="w-5 h-5 text-[#2e7d32] mx-auto mb-1" />
               <div className="text-[11px] font-bold text-[#0b3d91]">{COPY.LOGIN.BENEFITS[2].title}</div>
-              <div className="text-[9px] text-[#78909c]">{COPY.LOGIN.BENEFITS[2].sub}</div>
+              <div className="text-[9px] text-slate-600 font-medium">{COPY.LOGIN.BENEFITS[2].sub}</div>
             </div>
           </div>
 
@@ -130,7 +131,7 @@ export const LoginPage: React.FC = () => {
                 </div>
                 <div>
                   <div className="text-xs font-bold text-[#0b3d91]">{COPY.LOGIN.APK_BANNER_TITLE}</div>
-                  <div className="text-[11px] text-[#78909c]">{COPY.LOGIN.APK_BANNER_SUBTEXT}</div>
+                  <div className="text-[11px] text-slate-600">{COPY.LOGIN.APK_BANNER_SUBTEXT}</div>
                 </div>
               </div>
               <a
@@ -164,7 +165,7 @@ export const LoginPage: React.FC = () => {
           >
             <div className="text-center mb-5">
               <h2 className="font-serif text-xl font-bold text-[#0b3d91]">{COPY.LOGIN.CARD_TITLE}</h2>
-              <p className="text-xs text-[#78909c] mt-1">{COPY.LOGIN.CARD_SUBTITLE}</p>
+              <p className="text-xs text-slate-600 mt-1">{COPY.LOGIN.CARD_SUBTITLE}</p>
             </div>
 
             {error && (
@@ -232,6 +233,7 @@ export const LoginPage: React.FC = () => {
           </div>
         </div>
       </section>
+      </main>
 
       {/* ─── FOOTER ─── */}
       <footer className="bg-[#0b3d91] text-white/70 py-6 text-center text-xs border-t border-white/10">
