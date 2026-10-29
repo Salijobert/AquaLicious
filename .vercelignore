@@ -1,0 +1,12 @@
+tests/
+tools/
+backend/
+mobile/
+runtime/
+.gradle/
+node_modules/
+aqualicious website/
+deliverables/
+*.apk
+*.zip
+*.log
