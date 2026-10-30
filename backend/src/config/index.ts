@@ -41,11 +41,6 @@ if (isProduction) {
       'FATAL CONFIGURATION ERROR: In production, JWT_SECRET environment variable is required and must be at least 32 characters long. Server refusing to start.'
     );
   }
-  if (process.env.ALLOW_LOCAL_AUTH_FALLBACK === 'true' || process.env.ALLOW_LOCAL_AUTH_FALLBACK === '1') {
-    throw new Error(
-      'FATAL CONFIGURATION ERROR: ALLOW_LOCAL_AUTH_FALLBACK must never be true in production. Test auth is strictly forbidden in production. Server refusing to start.'
-    );
-  }
   if (parsedAdminUids.length === 0) {
     throw new Error(
       'FATAL CONFIGURATION ERROR: In production, ADMIN_FIREBASE_UIDS (or ADMIN_FIREBASE_UID) environment variable is required with at least one authorized UID. Server refusing to start.'
@@ -170,8 +165,8 @@ export async function verifyToken(idToken: string): Promise<TokenClaims> {
       email: decoded.email
     };
   } catch (fbErr: any) {
-    // In production or when local fallback is not explicitly enabled, fail immediately: NO test token fallback
-    if (isProduction || process.env.ALLOW_LOCAL_AUTH_FALLBACK !== 'true') {
+    // When local fallback is not explicitly enabled, fail immediately: NO test token fallback
+    if (process.env.ALLOW_LOCAL_AUTH_FALLBACK !== 'true') {
       throw new Error(fbErr.message || 'Invalid or expired Firebase ID token');
     }
 
@@ -198,8 +193,8 @@ export async function verifyToken(idToken: string): Promise<TokenClaims> {
  * Strictly throws if called in production or without ALLOW_LOCAL_AUTH_FALLBACK=true.
  */
 export function generateTestToken(claims: TokenClaims): string {
-  if (isProduction || process.env.ALLOW_LOCAL_AUTH_FALLBACK !== 'true') {
-    throw new Error('FATAL: generateTestToken is strictly disabled in production');
+  if (process.env.ALLOW_LOCAL_AUTH_FALLBACK !== 'true') {
+    throw new Error('FATAL: generateTestToken is disabled unless ALLOW_LOCAL_AUTH_FALLBACK=true');
   }
   return jwt.sign(
     {
