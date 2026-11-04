@@ -2,16 +2,13 @@ import React, { useState } from 'react';
 import { useAuth } from '../auth/AuthContext.js';
 import { useLocation, Link } from 'react-router-dom';
 import { useInventory, useOrders } from '../api/client.js';
-import { Bell, Menu, Server, ShoppingCart } from 'lucide-react';
-import { resolver } from '../api/multiServerResolver.js';
+import { Bell, Menu, ShoppingCart } from 'lucide-react';
 
 interface NavbarProps {
-  cartCount?: number;
-  onOpenCart?: () => void;
   onToggleSidebar?: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ cartCount = 0, onOpenCart, onToggleSidebar }) => {
+export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
   const { user, role } = useAuth();
   const location = useLocation();
   const { data: inventory } = useInventory();
@@ -19,15 +16,15 @@ export const Navbar: React.FC<NavbarProps> = ({ cartCount = 0, onOpenCart, onTog
 
   const [isNotifOpen, setIsNotifOpen] = useState(false);
 
-  // Compute page title based on current pathname
+  // Compute page title based on current pathname (aligned identically with Sidebar & Page headings)
   const path = location.pathname.toLowerCase();
   let pageTitle = 'Dashboard';
-  if (path.includes('sales')) pageTitle = 'Sales Transactions';
-  else if (path.includes('inventory')) pageTitle = 'Inventory Monitoring';
-  else if (path === '/' || path.includes('products')) pageTitle = 'Manage Products';
+  if (path.includes('sales')) pageTitle = 'Sales (POS)';
+  else if (path.includes('inventory')) pageTitle = 'Inventory';
+  else if (path.includes('admin/products') || path.includes('products')) pageTitle = 'Products';
   else if (path.includes('reports')) pageTitle = 'Reports & Analytics';
-  else if (path.includes('orders')) pageTitle = 'Orders Management';
-  else if (path.includes('users')) pageTitle = 'User Management';
+  else if (path.includes('orders')) pageTitle = 'Orders';
+  else if (path.includes('users')) pageTitle = 'Users';
 
   // Compute low stock items & pending orders for notifications
   const lowStock = inventory?.filter((p: any) => p.stock <= p.effective_rop) || [];
@@ -58,33 +55,6 @@ export const Navbar: React.FC<NavbarProps> = ({ cartCount = 0, onOpenCart, onTog
       </div>
 
       <div className="topbar-right">
-        {/* Cart Button */}
-        {onOpenCart && (
-          <button
-            data-id="cart"
-            onClick={onOpenCart}
-            className="w-9 h-9 rounded-full border border-gray-200 bg-white text-gray-600 flex items-center justify-center hover:border-blue-500 hover:text-blue-600 cursor-pointer relative transition-colors"
-            aria-label="View Cart"
-            title="View Cart"
-          >
-            <ShoppingCart className="w-4 h-4 text-gray-700" />
-            {cartCount > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#1565c0] text-white text-[10px] font-bold flex items-center justify-center">
-                {cartCount}
-              </span>
-            )}
-          </button>
-        )}
-
-        {/* Server status indicator (static, no user-editable settings) */}
-        <div
-          className="hidden sm:inline-flex items-center gap-1.5 text-xs text-blue-800 bg-[#e3f2fd] px-2.5 py-1 rounded-full font-medium"
-          title={`Active Server: ${resolver.getActiveServer()}`}
-        >
-          <Server className="w-3.5 h-3.5 text-[#1565c0]" />
-          <span>Cluster Online</span>
-        </div>
-
         {/* Notifications Popover */}
         <div className="relative">
           <button

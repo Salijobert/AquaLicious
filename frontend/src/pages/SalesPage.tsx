@@ -4,6 +4,7 @@ import { ShoppingCart, Plus, Minus, Trash2, Search, AlertCircle } from 'lucide-r
 import { ReceiptModal } from '../components/ReceiptModal.js';
 import { VoidModal } from '../components/VoidModal.js';
 import { VirtualTableBody, SalesHistorySkeletonRow } from '../components/virtual/index.js';
+import { AdminPageHeader } from '../components/AdminPageHeader.js';
 
 export const SalesPage: React.FC = () => {
   const { data: products } = useProducts();
@@ -116,6 +117,11 @@ export const SalesPage: React.FC = () => {
         {error || ''}
       </div>
 
+      <AdminPageHeader
+        title="Sales (POS)"
+        subtitle="Walk-in transactions, container refills, and point-of-sale checkout."
+      />
+
       {/* STAT ROW */}
       <div className="stat-grid" id="salesStats">
         <div className="stat-card">
@@ -160,14 +166,6 @@ export const SalesPage: React.FC = () => {
               <path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z" />
             </svg>
           </div>
-        </div>
-      </div>
-
-      {/* Playwright Test Heading Requirement */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Quick checkout</h1>
-          <p className="text-xs text-slate-500 font-semibold">Walk-in POS Sales Terminal</p>
         </div>
       </div>
 

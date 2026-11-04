@@ -28,7 +28,41 @@ export function useUpdateProduct() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['reports'] });
     }
+  });
+}
+
+export function useDeleteProduct() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, zero_stock, reason }: { id: number; zero_stock?: boolean; reason?: string }) =>
+      resolver.request(`/api/products/${id}`, { method: 'DELETE', data: { zero_stock, reason } }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['reports'] });
+    }
+  });
+}
+
+export function useRestoreProduct() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => resolver.request(`/api/products/${id}/restore`, { method: 'POST' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['reports'] });
+    }
+  });
+}
+
+export function useProductUsage(id?: number) {
+  return useQuery({
+    queryKey: ['product-usage', id],
+    queryFn: () => resolver.request<any>(`/api/products/${id}/usage`),
+    enabled: Boolean(id && id > 0)
   });
 }
 

@@ -46,6 +46,11 @@ if (isProduction) {
       'FATAL CONFIGURATION ERROR: In production, ADMIN_FIREBASE_UIDS (or ADMIN_FIREBASE_UID) environment variable is required with at least one authorized UID. Server refusing to start.'
     );
   }
+  if (process.env.ALLOW_LOCAL_AUTH_FALLBACK === 'true' || process.env.ALLOW_LOCAL_AUTH_FALLBACK === '1') {
+    throw new Error(
+      'FATAL CONFIGURATION ERROR: ALLOW_LOCAL_AUTH_FALLBACK must never be true in production. Test auth is strictly forbidden in production. Server refusing to start.'
+    );
+  }
 }
 
 export const config = {
@@ -193,8 +198,8 @@ export async function verifyToken(idToken: string): Promise<TokenClaims> {
  * Strictly throws if called in production or without ALLOW_LOCAL_AUTH_FALLBACK=true.
  */
 export function generateTestToken(claims: TokenClaims): string {
-  if (process.env.ALLOW_LOCAL_AUTH_FALLBACK !== 'true') {
-    throw new Error('FATAL: generateTestToken is disabled unless ALLOW_LOCAL_AUTH_FALLBACK=true');
+  if (isProduction || process.env.ALLOW_LOCAL_AUTH_FALLBACK !== 'true') {
+    throw new Error('FATAL: generateTestToken is strictly disabled in production');
   }
   return jwt.sign(
     {

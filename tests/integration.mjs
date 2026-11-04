@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
-const base=process.env.AQ_TEST_URL||'http://127.0.0.1:8088/backend/api';
-const second=process.env.AQ_TEST_URL_2||'http://127.0.0.1:8089/backend/api';
+import './safety_guard.mjs';
+const base=process.env.AQ_TEST_URL||'http://127.0.0.1:8090/backend/api';
+const second=process.env.AQ_TEST_URL_2||'http://127.0.0.1:8091/backend/api';
 const adminUsername=process.env.AQ_UI_USERNAME||'test-owner';
 const password=process.env.AQ_ADMIN_PASSWORD;
 if(!password)throw new Error('AQ_ADMIN_PASSWORD required; tests run only against a disposable database.');

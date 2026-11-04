@@ -69,7 +69,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     {
       to: '/users',
       id: 'users',
-      label: 'User Management',
+      label: 'Users',
       icon: Users,
       roles: ['Administrator']
     }
@@ -93,8 +93,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        {/* Brand Header: Clicking always navigates to home ('/') */}
-        <Link to="/" onClick={onClose} className="sidebar-brand cursor-pointer">
+        {/* Brand Header: Admin sidebar logo links directly to /dashboard */}
+        <Link to="/dashboard" onClick={onClose} className="sidebar-brand cursor-pointer">
           <div className="brand-logo">
             <svg viewBox="0 0 24 24">
               <path d="M12 2C8 7 4 10.5 4 14a8 8 0 0016 0c0-3.5-4-7-8-12z" />

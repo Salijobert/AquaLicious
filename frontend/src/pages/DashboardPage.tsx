@@ -3,6 +3,7 @@ import { useReports, useInventory, useSales } from '../api/client.js';
 import { useAuth } from '../auth/AuthContext.js';
 import { Link } from 'react-router-dom';
 import { TrendingUp, TrendingDown, Minus, ArrowRight } from 'lucide-react';
+import { AdminPageHeader } from '../components/AdminPageHeader.js';
 
 type Period = 'today' | 'week' | 'month' | 'year' | 'all' | 'custom';
 
@@ -149,66 +150,66 @@ export const DashboardPage: React.FC = () => {
         {reportError ? (reportError as any).message : ''}
       </div>
 
-      {/* HEADER & TIME PERIOD FILTER BAR (Matches User Specification) */}
-      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 font-serif">Executive Dashboard</h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Operational KPIs, sales performance, and water inventory alerts for{' '}
+      {/* STANDARDIZED ADMIN PAGE HEADER WITH PERIOD FILTER BAR */}
+      <AdminPageHeader
+        title="Dashboard"
+        subtitle={
+          <span>
+            Executive KPIs, sales trends, and real-time operational status for{' '}
             <span className="font-bold text-[#0b3d91]">{periodLabels[period].desc}</span>.
-          </p>
-        </div>
-
-        {/* Segmented Time Period Filter Pill Bar (AquaLicious Theme) */}
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="bg-white/95 rounded-full border border-[#bbdefb] p-1 shadow-xs inline-flex items-center gap-1 max-w-full overflow-x-auto scrollbar-none">
-            {[
-              { id: 'today', label: 'Today' },
-              { id: 'week', label: 'This Week' },
-              { id: 'month', label: 'This Month' },
-              { id: 'year', label: 'This Year' },
-              { id: 'all', label: 'All Time' },
-              { id: 'custom', label: 'Custom' }
-            ].map((tab) => {
-              const isActive = period === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setPeriod(tab.id as Period)}
-                  className={`px-4 py-1.5 sm:py-2 text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer rounded-full ${
-                    isActive
-                      ? 'bg-[#1565c0] hover:bg-[#0b3d91] text-white font-bold shadow-xs'
-                      : 'text-[#0b3d91] hover:text-[#0b3d91] hover:bg-[#e3f2fd] font-semibold'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Custom Date Pickers */}
-          {period === 'custom' && (
-            <div className="flex items-center gap-2 bg-white/95 px-4 py-1.5 rounded-full border border-[#bbdefb] shadow-xs text-xs animate-in fade-in">
-              <span className="text-[#1565c0] font-bold">From:</span>
-              <input
-                type="date"
-                value={customStart}
-                onChange={(e) => setCustomStart(e.target.value)}
-                className="border border-[#bbdefb] rounded-lg px-2.5 py-1 text-xs text-slate-800 font-mono focus:outline-none focus:border-[#1565c0] focus:ring-1 focus:ring-[#1565c0]"
-              />
-              <span className="text-[#1565c0] font-bold">To:</span>
-              <input
-                type="date"
-                value={customEnd}
-                onChange={(e) => setCustomEnd(e.target.value)}
-                className="border border-[#bbdefb] rounded-lg px-2.5 py-1 text-xs text-slate-800 font-mono focus:outline-none focus:border-[#1565c0] focus:ring-1 focus:ring-[#1565c0]"
-              />
+          </span>
+        }
+        actions={
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="bg-white/95 rounded-full border border-[#bbdefb] p-1 shadow-xs inline-flex items-center gap-1 max-w-full overflow-x-auto scrollbar-none">
+              {[
+                { id: 'today', label: 'Today' },
+                { id: 'week', label: 'This Week' },
+                { id: 'month', label: 'This Month' },
+                { id: 'year', label: 'This Year' },
+                { id: 'all', label: 'All Time' },
+                { id: 'custom', label: 'Custom' }
+              ].map((tab) => {
+                const isActive = period === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setPeriod(tab.id as Period)}
+                    className={`px-4 py-1.5 sm:py-2 text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer rounded-full ${
+                      isActive
+                        ? 'bg-[#1565c0] hover:bg-[#0b3d91] text-white font-bold shadow-xs'
+                        : 'text-[#0b3d91] hover:text-[#0b3d91] hover:bg-[#e3f2fd] font-semibold'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
             </div>
-          )}
-        </div>
-      </div>
+
+            {/* Custom Date Pickers */}
+            {period === 'custom' && (
+              <div className="flex items-center gap-2 bg-white/95 px-4 py-1.5 rounded-full border border-[#bbdefb] shadow-xs text-xs animate-in fade-in">
+                <span className="text-[#1565c0] font-bold">From:</span>
+                <input
+                  type="date"
+                  value={customStart}
+                  onChange={(e) => setCustomStart(e.target.value)}
+                  className="border border-[#bbdefb] rounded-lg px-2.5 py-1 text-xs text-slate-800 font-mono focus:outline-none focus:border-[#1565c0] focus:ring-1 focus:ring-[#1565c0]"
+                />
+                <span className="text-[#1565c0] font-bold">To:</span>
+                <input
+                  type="date"
+                  value={customEnd}
+                  onChange={(e) => setCustomEnd(e.target.value)}
+                  className="border border-[#bbdefb] rounded-lg px-2.5 py-1 text-xs text-slate-800 font-mono focus:outline-none focus:border-[#1565c0] focus:ring-1 focus:ring-[#1565c0]"
+                />
+              </div>
+            )}
+          </div>
+        }
+      />
 
       {/* STAT CARDS */}
       <div className="stat-grid" id="statGrid">

@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useUsers, useCreateUser, useUpdateUser } from '../api/client.js';
 import { UserPlus, Shield, UserCheck, UserX } from 'lucide-react';
 import { VirtualTableBody, UserSkeletonRow } from '../components/virtual/index.js';
+import { AdminPageHeader } from '../components/AdminPageHeader.js';
 
 export const UsersPage: React.FC = () => {
   const { data: users, error } = useUsers();
@@ -60,19 +61,18 @@ export const UsersPage: React.FC = () => {
         {error ? (error as any).message : ''}
       </div>
 
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">User Management</h1>
-          <p className="text-xs text-slate-500 font-semibold">Administrator & Customer User Accounts</p>
-        </div>
-
-        <button
-          onClick={() => setIsCreateOpen(true)}
-          className="btn btn-primary btn-sm gap-2 font-bold shadow"
-        >
-          <UserPlus className="w-4 h-4" /> Provision User
-        </button>
-      </div>
+      <AdminPageHeader
+        title="Users"
+        subtitle="Manage customer profiles, roles, and account verification statuses."
+        actions={
+          <button
+            onClick={() => setIsCreateOpen(true)}
+            className="btn btn-primary btn-sm gap-2 font-bold shadow"
+          >
+            <UserPlus className="w-4 h-4" /> Provision User
+          </button>
+        }
+      />
 
       {/* USERS TABLE */}
       <div className="card">

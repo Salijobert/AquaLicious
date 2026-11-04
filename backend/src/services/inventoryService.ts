@@ -123,7 +123,7 @@ export class InventoryService {
     return prisma.$transaction(async (tx) => {
       // Pessimistic row locking via raw SQL
       const rows: any[] = await tx.$queryRaw`
-        SELECT id, stock, "productionCost", "sellingPrice" 
+        SELECT id, name, stock, active, "productionCost", "sellingPrice" 
         FROM products 
         WHERE id = ${productId} 
         FOR UPDATE
@@ -134,6 +134,9 @@ export class InventoryService {
       }
 
       const product = rows[0];
+      if (!product.active) {
+        throw new Error(`Cannot adjust or restock archived product #${productId} (${product.name || 'Inactive'})`);
+      }
       const previousBalance = Number(product.stock);
       let newBalance: number;
       let changeQty: number;

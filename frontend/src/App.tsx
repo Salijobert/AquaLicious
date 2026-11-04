@@ -25,6 +25,7 @@ const InventoryPage = lazy(() => import('./pages/InventoryPage.js').then((m) => 
 const AdminProductsPage = lazy(() => import('./pages/AdminProductsPage.js').then((m) => ({ default: m.AdminProductsPage })));
 const ReportsPage = lazy(() => import('./pages/ReportsPage.js').then((m) => ({ default: m.ReportsPage })));
 const UsersPage = lazy(() => import('./pages/UsersPage.js').then((m) => ({ default: m.UsersPage })));
+const NotFoundPage = lazy(() => import('./pages/NotFoundPage.js').then((m) => ({ default: m.NotFoundPage })));
 
 // Helper component preserving query strings and hash parameters on legacy alias redirections
 const PreserveQueryRedirect: React.FC<{ to: string }> = ({ to }) => {
@@ -41,7 +42,8 @@ interface CartItem {
 }
 
 export const App: React.FC = () => {
-  const { user } = useAuth();
+  const { user, role, isLoading } = useAuth();
+  const isAdmin = role === 'Administrator';
   const navigate = useNavigate();
   const location = useLocation();
   const createOrderMutation = useCreateOrder();
@@ -181,7 +183,6 @@ export const App: React.FC = () => {
     path.startsWith('/forgot-password') ||
     path.startsWith('/reset-password-complete');
   const isHomePage = path === '/' || path === '/index.html' || path === '/products' || path === '/products.html';
-  const isAdmin = user && user.role === 'Administrator';
   const showAdminLayout = !isAuthPage && !isHomePage && isAdmin;
 
   return (
@@ -196,7 +197,7 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* Top Mobile Bar for Admin when in Admin Layout */}
+      {/* Top Mobile Bar for Admin when in Admin Layout (cart button removed for Admin) */}
       {showAdminLayout && (
         <div className="mobile-top lg:hidden flex items-center justify-between px-4 py-2.5 bg-white border-b border-gray-200 sticky top-0 z-30 shadow-xs">
           <button
@@ -207,19 +208,7 @@ export const App: React.FC = () => {
             <Droplet className="w-6 h-6 text-[#1565c0] fill-[#1565c0]" />
           </button>
           <span className="font-serif font-bold text-[#0b3d91] text-base tracking-tight">AquaLicious</span>
-          <button
-            data-id="cart"
-            onClick={() => setIsCartOpen(true)}
-            className="p-1 relative text-gray-700 hover:bg-gray-100 rounded-md"
-            aria-label="Customer Cart"
-          >
-            <ShoppingCart className="w-5 h-5 text-gray-700" />
-            {cart.length > 0 && (
-              <span className="min-w-[16px] h-4 px-1 rounded-full bg-[#1565c0] text-white text-[10px] font-bold absolute -top-1 -right-1 flex items-center justify-center">
-                {cart.length}
-              </span>
-            )}
-          </button>
+          <div className="w-6" />
         </div>
       )}
 
@@ -238,8 +227,6 @@ export const App: React.FC = () => {
         <div className={showAdminLayout ? 'main' : (!isAuthPage ? 'pt-16' : 'min-h-screen')}>
           {showAdminLayout && (
             <Navbar
-              cartCount={cart.reduce((s, i) => s + i.qty, 0)}
-              onOpenCart={() => setIsCartOpen(true)}
               onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
             />
           )}
@@ -247,8 +234,19 @@ export const App: React.FC = () => {
             <Routes>
               {/* CANONICAL CLEAN ROUTES */}
 
-              {/* 1. Home / Products Catalog: Public for everyone (guests, customers, admin) */}
-              <Route path="/" element={<ProductsPage onAddToCart={addToCart} />} />
+              {/* 1. Home / Products Catalog: Signed-in Admin immediately redirected to /dashboard */}
+              <Route
+                path="/"
+                element={
+                  isLoading ? (
+                    <PageLoadingSpinner />
+                  ) : isAdmin ? (
+                    <Navigate to="/dashboard" replace />
+                  ) : (
+                    <ProductsPage onAddToCart={addToCart} />
+                  )
+                }
+              />
 
               {/* 2. Authentication Flow */}
               <Route path="/login" element={<LoginPage />} />
@@ -314,28 +312,8 @@ export const App: React.FC = () => {
               <Route path="/users.html" element={<PreserveQueryRedirect to="/users" />} />
               <Route path="/frontend/pages/users.html" element={<PreserveQueryRedirect to="/users" />} />
 
-              {/* Catch-all 404 / Unknown route redirection */}
-              <Route
-                path="*"
-                element={
-                  !user ? (
-                    <Navigate to="/login" replace />
-                  ) : (
-                    <div className="min-h-[60vh] flex flex-col items-center justify-center p-8 text-center space-y-4">
-                      <div className="w-14 h-14 rounded-full bg-blue-50 text-[#1565c0] flex items-center justify-center mx-auto">
-                        <AlertTriangle className="w-8 h-8 text-[#1565c0]" />
-                      </div>
-                      <h1 className="text-3xl font-extrabold text-[#0b3d91]">404 - Page Not Found</h1>
-                      <p className="text-xs text-slate-500 max-w-sm">
-                        The requested page does not exist or has been moved to a new clean URL.
-                      </p>
-                      <Link to="/" className="btn btn-primary btn-sm font-bold shadow-sm">
-                        Return to Storefront
-                      </Link>
-                    </div>
-                  )
-                }
-              />
+              {/* Catch-all 404 / Unknown route handler (renders branded 404 for all users) */}
+              <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>
         </div>

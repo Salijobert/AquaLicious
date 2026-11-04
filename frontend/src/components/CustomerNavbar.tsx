@@ -157,14 +157,6 @@ export const CustomerNavbar: React.FC<CustomerNavbarProps> = ({ cartCount = 0, o
           ) : isAdmin ? (
             <div className="flex items-center gap-2 sm:gap-3">
               <Link
-                to="/admin/products"
-                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#e3f2fd] text-[#1565c0] hover:bg-[#bbdefb] transition-all"
-              >
-                <Package className="w-3.5 h-3.5" />
-                <span>Manage Products</span>
-              </Link>
-
-              <Link
                 to="/dashboard"
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold bg-[#0b3d91] text-white hover:bg-[#1565c0] shadow-sm transition-all"
               >
@@ -251,26 +243,15 @@ export const CustomerNavbar: React.FC<CustomerNavbarProps> = ({ cartCount = 0, o
             )}
 
             {isAdmin && (
-              <>
-                <Link
-                  to="/admin/products"
-                  onClick={() => setIsMobileMenuOpen(false)}
-                  className="py-1.5 text-slate-800 hover:text-[#1565c0] flex items-center justify-between font-bold"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <Package className="w-4 h-4 text-[#1565c0]" /> Manage Products
-                  </span>
-                </Link>
-                <Link
-                  to="/dashboard"
-                  onClick={() => setIsMobileMenuOpen(false)}
-                  className="py-1.5 text-slate-800 hover:text-[#1565c0] flex items-center justify-between font-bold"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <LayoutDashboard className="w-4 h-4 text-[#1565c0]" /> Admin Dashboard
-                  </span>
-                </Link>
-              </>
+              <Link
+                to="/dashboard"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="py-1.5 text-slate-800 hover:text-[#1565c0] flex items-center justify-between font-bold"
+              >
+                <span className="flex items-center gap-1.5">
+                  <LayoutDashboard className="w-4 h-4 text-[#1565c0]" /> Admin Dashboard
+                </span>
+              </Link>
             )}
           </div>
 

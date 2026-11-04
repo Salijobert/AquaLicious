@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext.js';
 import { Calculator, Plus, History, AlertTriangle } from 'lucide-react';
 import { RopCalculatorModal } from '../components/RopCalculatorModal.js';
 import { VirtualTableBody, LedgerSkeletonRow } from '../components/virtual/index.js';
+import { AdminPageHeader } from '../components/AdminPageHeader.js';
 
 export const InventoryPage: React.FC = () => {
   const { role } = useAuth();
@@ -52,20 +53,19 @@ export const InventoryPage: React.FC = () => {
         {error || ''}
       </div>
 
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Inventory Monitoring</h1>
-          <p className="text-xs text-slate-500 font-semibold">Stock Levels, Usage Analytics & Dynamic ROP Thresholds</p>
-        </div>
-
-        <button
-          data-action="rop"
-          onClick={() => setIsRopOpen(true)}
-          className="btn btn-primary btn-sm gap-2 font-bold shadow"
-        >
-          <Calculator className="w-4 h-4" /> ROP Calculator
-        </button>
-      </div>
+      <AdminPageHeader
+        title="Inventory"
+        subtitle="Stock levels, usage analytics, and dynamic reorder thresholds."
+        actions={
+          <button
+            data-action="rop"
+            onClick={() => setIsRopOpen(true)}
+            className="btn btn-primary btn-sm gap-2 font-bold shadow"
+          >
+            <Calculator className="w-4 h-4" /> ROP Calculator
+          </button>
+        }
+      />
 
       {/* Category Chips */}
       <div className="flex gap-2 flex-wrap" id="catChips">

@@ -8,8 +8,23 @@ export interface ServerNode {
 
 export const EXPECTED_CLUSTER_ID = 'aqualicious-cluster-primary';
 
-// API base URL configured strictly via build-time VITE_API_URL
-const apiBaseUrl = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
+const isCapacitor = typeof window !== 'undefined' && (
+  (window as any).Capacitor !== undefined ||
+  window.location.protocol === 'capacitor:' ||
+  window.location.protocol === 'file:'
+);
+
+const isBrowserRemote = isCapacitor || (
+  typeof window !== 'undefined' &&
+  window.location.hostname !== 'localhost' &&
+  window.location.hostname !== '127.0.0.1'
+);
+
+const defaultRemoteUrl = 'https://muscular-donator-uncloak.ngrok-free.dev';
+
+// API base URL configured via build-time VITE_API_URL, defaulting to ngrok when running remotely (Vercel/Capacitor)
+const configuredApiUrl = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
+const apiBaseUrl = configuredApiUrl || (isBrowserRemote ? defaultRemoteUrl : 'http://localhost:8088');
 
 class MultiServerResolver {
   private apiBaseUrl: string;
@@ -33,35 +48,8 @@ class MultiServerResolver {
     return this.token;
   }
 
-  public getServers(): ServerNode[] {
-    return [
-      {
-        url: this.apiBaseUrl || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8088'),
-        label: 'API Server',
-        isPrimary: true,
-        status: 'online'
-      }
-    ];
-  }
-
   public getActiveServer(): string {
     return this.apiBaseUrl || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8088');
-  }
-
-  public async verifyCluster(serverUrl: string): Promise<boolean> {
-    try {
-      const res = await fetch(`${serverUrl.replace(/\/$/, '')}/api/config`, {
-        signal: AbortSignal.timeout(5000),
-        headers: {
-          'X-AquaLicious-Cluster-Id': EXPECTED_CLUSTER_ID
-        }
-      });
-      if (!res.ok) return false;
-      const data = await res.json();
-      return data.cluster_id === EXPECTED_CLUSTER_ID;
-    } catch {
-      return false;
-    }
   }
 
   /**
@@ -84,6 +72,7 @@ class MultiServerResolver {
     const reqHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
       'X-AquaLicious-Cluster-Id': EXPECTED_CLUSTER_ID,
+      'ngrok-skip-browser-warning': 'true',
       ...headers
     };
 

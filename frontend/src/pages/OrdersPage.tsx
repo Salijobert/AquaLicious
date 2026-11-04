@@ -3,6 +3,7 @@ import { useOrders, usePatchOrder, useConfig } from '../api/client.js';
 import { useAuth } from '../auth/AuthContext.js';
 import { CheckCircle, XCircle, Clock, Truck, QrCode } from 'lucide-react';
 import { VirtualCardList, OrderCardSkeleton } from '../components/virtual/index.js';
+import { AdminPageHeader } from '../components/AdminPageHeader.js';
 
 export const OrdersPage: React.FC = () => {
   const { role } = useAuth();
@@ -91,12 +92,14 @@ export const OrdersPage: React.FC = () => {
         {error ? (error as any).message : ''}
       </div>
 
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">My Orders</h1>
-          <p className="text-xs text-slate-500 font-semibold">Track water deliveries, pickup reservations & online QR payments</p>
-        </div>
-      </div>
+      <AdminPageHeader
+        title={isAdmin ? "Orders Management" : "My Orders"}
+        subtitle={
+          isAdmin
+            ? "Review incoming orders, verify payments, and manage fulfillment status."
+            : "Track water deliveries, pickup reservations, and online payments."
+        }
+      />
 
       <div
         ref={ordersContainerRef}

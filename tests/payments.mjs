@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';import {randomUUID} from 'node:crypto';
-const base=process.env.AQ_TEST_URL||'http://127.0.0.1:8088/backend/api';const password=process.env.AQ_ADMIN_PASSWORD;if(!password)throw new Error('AQ_ADMIN_PASSWORD required');const adminUsername=process.env.AQ_UI_USERNAME||'test-owner';let n=0;
+import './safety_guard.mjs';
+const base=process.env.AQ_TEST_URL||'http://127.0.0.1:8090/backend/api';const password=process.env.AQ_ADMIN_PASSWORD;if(!password)throw new Error('AQ_ADMIN_PASSWORD required');const adminUsername=process.env.AQ_UI_USERNAME||'test-owner';let n=0;
 for(let i=0;i<30;i++){try{await fetch(base+'/config.php');break;}catch{await new Promise(r=>setTimeout(r,100));}}
 const ok=(v,s)=>{assert.ok(v,s);console.log('PASS '+s);n++;};
 async function req(path,data,method='GET',token=''){const r=await fetch(base+'/'+path,{method,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:data?JSON.stringify(data):undefined});return{code:r.status,data:await r.json()};}

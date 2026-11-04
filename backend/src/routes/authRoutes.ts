@@ -232,9 +232,12 @@ router.post('/', async (req: Request, res: Response) => {
     return res.status(422).json({ error: 'Password is required' });
   }
 
-  // Reject local username/password fallback if not explicitly enabled
+  // In production or when local fallback is not enabled, reject local username/password fallback (fail closed)
+  if (config.nodeEnv === 'production' && process.env.ALLOW_LOCAL_AUTH_FALLBACK !== 'true') {
+    return res.status(403).json({ error: 'Direct local authentication is disabled in production. Use Firebase authentication.' });
+  }
   if (process.env.ALLOW_LOCAL_AUTH_FALLBACK !== 'true') {
-    return res.status(403).json({ error: 'Direct local authentication is disabled. Use Firebase authentication or set ALLOW_LOCAL_AUTH_FALLBACK=true.' });
+    return res.status(403).json({ error: 'Direct local authentication is disabled in production. Use Firebase authentication.' });
   }
 
   // Verify password against expected secret (strictly requires AQ_ADMIN_PASSWORD; zero default)

@@ -37,10 +37,45 @@ const updateProductSchema = z.object({
 });
 
 // Public catalog with optional auth (to reveal production_cost for Admin)
+// include_inactive is strictly Admin-only; customers and logged-out callers always get active: true only
 router.get('/', optionalAuth, async (req: Request, res: Response) => {
-  const includeInactive = req.query.include_inactive === '1' || req.query.include_inactive === 'true';
+  const isAdmin = req.user?.role === Role.ADMIN;
+  const requestedInactive = req.query.include_inactive === '1' || req.query.include_inactive === 'true';
+  const includeInactive = isAdmin && requestedInactive;
   const products = await ProductService.listProducts(req.user?.role, includeInactive);
   return res.json(products);
+});
+
+// Admin product usage inspection (for delete/archive confirmation dialog)
+router.get('/:id/usage', authenticate, requireRole(Role.ADMIN), async (req: Request, res: Response) => {
+  const rawId = req.params.id || req.query.id;
+  const parsedId = z.coerce.number().int().positive().safeParse(rawId);
+  if (!parsedId.success) {
+    return res.status(422).json({ error: 'Valid product ID required' });
+  }
+
+  try {
+    const usage = await ProductService.getProductUsage(parsedId.data);
+    return res.status(200).json(usage);
+  } catch (err: any) {
+    return res.status(err.status || 500).json({ error: err.message || 'Failed to inspect product' });
+  }
+});
+
+// Legacy/root alias for usage inspection (/usage?id=123)
+router.get('/usage', authenticate, requireRole(Role.ADMIN), async (req: Request, res: Response) => {
+  const rawId = req.query.id;
+  const parsedId = z.coerce.number().int().positive().safeParse(rawId);
+  if (!parsedId.success) {
+    return res.status(422).json({ error: 'Valid product ID required' });
+  }
+
+  try {
+    const usage = await ProductService.getProductUsage(parsedId.data);
+    return res.status(200).json(usage);
+  } catch (err: any) {
+    return res.status(err.status || 500).json({ error: err.message || 'Failed to inspect product' });
+  }
 });
 
 // Admin create product
@@ -55,7 +90,8 @@ router.post('/', authenticate, requireRole(Role.ADMIN), async (req: Request, res
     const product = await ProductService.createProduct(parsed.data);
     return res.status(200).json(product);
   } catch (err: any) {
-    return res.status(err.status || 422).json({ error: err.message || 'Product creation failed' });
+    const msg = err.message || 'Product creation failed';
+    return res.status(err.status || 422).json({ error: msg, message: msg });
   }
 });
 
@@ -72,8 +108,65 @@ router.patch('/', authenticate, requireRole(Role.ADMIN), async (req: Request, re
     const updated = await ProductService.updateProduct(id, data);
     return res.status(200).json(updated);
   } catch (err: any) {
-    return res.status(err.status || 422).json({ error: err.message || 'Product update failed' });
+    const msg = err.message || 'Product update failed';
+    return res.status(err.status || 422).json({ error: msg, message: msg });
   }
 });
+
+const deleteProductSchema = z.object({
+  id: z.coerce.number().int().positive('Valid product ID required'),
+  zero_stock: z.coerce.boolean().optional(),
+  reason: z.string().trim().optional()
+});
+
+// Admin delete or archive product (:id parameter or ?id= query param for legacy alias)
+const handleDeleteProduct = async (req: Request, res: Response) => {
+  const rawId = req.params.id || req.query.id || req.body?.id;
+  const parsed = deleteProductSchema.safeParse({
+    id: rawId,
+    zero_stock: req.body?.zero_stock ?? req.query.zero_stock,
+    reason: req.body?.reason ?? req.query.reason
+  });
+
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return res.status(422).json({ error: issue?.message || 'Valid product ID required' });
+  }
+
+  try {
+    const result = await ProductService.deleteProduct(
+      parsed.data.id,
+      req.user!.id,
+      { zero_stock: parsed.data.zero_stock, reason: parsed.data.reason }
+    );
+    return res.status(200).json(result);
+  } catch (err: any) {
+    const msg = err.message || 'Product deletion failed';
+    return res.status(err.status || 500).json({ error: msg, message: msg });
+  }
+};
+
+router.delete('/:id', authenticate, requireRole(Role.ADMIN), handleDeleteProduct);
+router.delete('/', authenticate, requireRole(Role.ADMIN), handleDeleteProduct);
+
+// Admin restore archived product
+const handleRestoreProduct = async (req: Request, res: Response) => {
+  const rawId = req.params.id || req.query.id || req.body?.id;
+  const parsedId = z.coerce.number().int().positive().safeParse(rawId);
+  if (!parsedId.success) {
+    return res.status(422).json({ error: 'Valid product ID required' });
+  }
+
+  try {
+    const result = await ProductService.restoreProduct(parsedId.data, req.user!.id);
+    return res.status(200).json(result);
+  } catch (err: any) {
+    const msg = err.message || 'Product restore failed';
+    return res.status(err.status || 500).json({ error: msg, message: msg });
+  }
+};
+
+router.post('/:id/restore', authenticate, requireRole(Role.ADMIN), handleRestoreProduct);
+router.post('/restore', authenticate, requireRole(Role.ADMIN), handleRestoreProduct);
 
 export default router;

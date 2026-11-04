@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useProducts, useOrders } from '../api/client.js';
 import { useAuth } from '../auth/AuthContext.js';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import {
   Search, ShoppingCart, Droplet, ShieldCheck, Award,
   Truck, Clock, MapPin, Phone, CheckCircle2,
   Smartphone, Minus, Check, Plus
 } from 'lucide-react';
+import { PageLoadingSpinner } from '../components/RouteGuards.js';
 import { BottleGraphic } from '../components/WaterBottleGraphics.js';
 import { AboutStationModal } from '../components/AboutStationModal.js';
 import { CustomerAppModal } from '../components/CustomerAppModal.js';
@@ -18,15 +19,23 @@ interface ProductsPageProps {
 }
 
 export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
-  const { user, role } = useAuth();
+  const { user, role, isLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
   const isAdmin = role === 'Administrator';
   const isCapacitor = isCapacitorApp();
 
-  // Load products (backend automatically strips production_cost for non-admins)
-  const { data: products, error } = useProducts(isAdmin);
+  // If signed-in Administrator opens storefront, redirect immediately to dashboard (no flash)
+  if (isLoading) {
+    return <PageLoadingSpinner />;
+  }
+  if (isAdmin) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  // Load products (customer storefront always shows active products only, even for Admin)
+  const { data: products, error } = useProducts(false);
   const { data: customerOrders } = useOrders(undefined, { enabled: Boolean(user) });
 
   // Filter & Search

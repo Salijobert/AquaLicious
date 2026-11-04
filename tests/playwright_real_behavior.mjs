@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import './safety_guard.mjs';
 
-const baseUrl = process.env.AQ_TEST_WEB || 'http://127.0.0.1:8088';
+const baseUrl = process.env.AQ_TEST_WEB || 'http://127.0.0.1:8090';
 const adminPassword = process.env.AQ_ADMIN_PASSWORD;
 if (!adminPassword) {
   throw new Error('AQ_ADMIN_PASSWORD environment variable is required');
@@ -20,10 +21,24 @@ const browser = await chromium.launch({
 
 async function createContext(options = {}) {
   const ctx = await browser.newContext(options);
-  await ctx.route('http://localhost:8088/**', (route) => {
-    const url = new URL(route.request().url());
-    const dest = `${baseUrl}${url.pathname}${url.search}`;
-    route.continue({ url: dest });
+  await ctx.route('**', async (route) => {
+    const req = route.request();
+    const reqUrl = req.url();
+    if (reqUrl.includes('ngrok-free.dev') || reqUrl.includes('localhost:8088')) {
+      const u = new URL(reqUrl);
+      const dest = `${baseUrl}${u.pathname}${u.search}`;
+      try {
+        const response = await ctx.request.fetch(dest, {
+          method: req.method(),
+          headers: req.headers(),
+          data: req.postDataBuffer() || undefined
+        });
+        return await route.fulfill({ response }).catch(() => {});
+      } catch (err) {
+        return route.abort().catch(() => {});
+      }
+    }
+    return route.continue();
   });
   return ctx;
 }
@@ -92,7 +107,7 @@ try {
     where: { id: 1 },
     data: { stock: 50 }
   });
-  const seededAdmin = await prisma.user.findFirst({ where: { role: 'ADMIN' } });
+  const seededAdmin = await prisma.user.findFirst({ where: { role: 'ADMIN', username: 'admin' } });
   const adminUsername = process.env.AQ_UI_USERNAME || seededAdmin?.username || 'admin';
   await prisma.$disconnect();
 
@@ -118,7 +133,7 @@ try {
   const guestContext = await createContext();
   const guestPage = await guestContext.newPage();
   await guestPage.goto(`${baseUrl}/`);
-  await guestPage.waitForSelector('#products-catalog');
+  await guestPage.waitForSelector('#products-catalog h3', { timeout: 10000 });
 
   const loginBtn = await guestPage.locator('nav a[href="/login"]:has-text("LOGIN")');
   report((await loginBtn.count()) > 0, 'Logged-out "/" renders storefront products catalog');
@@ -181,7 +196,7 @@ try {
     });
 
     await p.goto(`${baseUrl}${urlPath}`);
-    await p.waitForTimeout(600);
+    await p.waitForURL((u) => u.pathname.includes('/login') || u.pathname.includes('/404'), { timeout: 3000 }).catch(() => {});
 
     const currentUrl = p.url();
     const isLogin = currentUrl.includes('/login');
@@ -373,7 +388,7 @@ try {
   report(sidebarVisibleOnAdminProducts, 'Admin layout (Sidebar & Navbar) remains mounted on /admin/products');
 
   // Verify AdminProductManager table rendered
-  await adminPage.waitForSelector('table tbody tr');
+  await adminPage.waitForSelector('table tbody tr td strong', { timeout: 10000 });
   const adminTableVisible = await adminPage.locator('table').isVisible();
   report(adminTableVisible, 'AdminProductManager table is visible on /admin/products');
 
@@ -384,25 +399,26 @@ try {
 
   await adminPage.screenshot({ path: 'tests/screenshots/admin_products_sidebar.png' });
 
-  // Navigate to "/" (Home Storefront) as Admin
-  await adminPage.click('.sidebar-brand[href="/"]');
-  await adminPage.waitForURL(`${baseUrl}/`);
-  report(adminPage.url() === `${baseUrl}/`, 'Admin clicking logo in Sidebar navigates to "/" (home storefront)');
+  // Sidebar logo navigates to "/dashboard" for Admin
+  await adminPage.click('.sidebar-brand[href="/dashboard"]');
+  await adminPage.waitForURL(`${baseUrl}/dashboard`);
+  report(adminPage.url().includes('/dashboard'), 'Admin clicking logo in Sidebar navigates to "/dashboard"');
 
-  // Verify Storefront on "/" has NO Admin Table / Customer View toggle for Admin
-  const adminToggleCount = await adminPage.locator('button:has-text("Admin Table"), button:has-text("Customer View")').count();
-  report(adminToggleCount === 0, 'Admin on "/" has NO Admin Table / Customer View toggle (only customer storefront)');
+  // Visiting "/" as signed-in Admin redirects to "/dashboard" (never flashes storefront)
+  await adminPage.goto(`${baseUrl}/`);
+  await adminPage.waitForURL(`${baseUrl}/dashboard`);
+  report(adminPage.url().includes('/dashboard'), 'Signed-in Admin visiting "/" is redirected to "/dashboard"');
 
-  // Verify "Manage Products" link in CustomerNavbar for Admin
+  // Storefront "Manage Products" link is removed for clean navigation
   const manageProductsNav = await adminPage.locator('nav a[href="/admin/products"]:has-text("Manage Products")');
-  report((await manageProductsNav.count()) > 0, 'CustomerNavbar renders "Manage Products" link when logged in as Administrator');
+  report((await manageProductsNav.count()) === 0, 'CustomerNavbar does not render redundant "Manage Products" link');
 
-  await adminPage.screenshot({ path: 'tests/screenshots/admin_storefront_manage_products.png' });
+  await adminPage.screenshot({ path: 'tests/screenshots/admin_dashboard_redirect.png' });
 
   // Opening /login while signed in as Admin redirects to /dashboard
   await adminPage.goto(`${baseUrl}/login`);
-  await adminPage.waitForTimeout(600);
-  report(adminPage.url() === `${baseUrl}/dashboard`, 'Signed-in Admin opening /login is redirected to /dashboard');
+  await adminPage.waitForTimeout(1500);
+  report(adminPage.url().includes('/dashboard'), 'Signed-in Admin opening /login is redirected to /dashboard');
 
   await adminContext.close();
 

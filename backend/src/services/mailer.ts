@@ -138,17 +138,21 @@ export class Mailer {
         console.error(`[Mailer] Error sending email (${mail.type} to ${mail.to}):`, err.message);
 
         // Record failure
-        await prisma.emailLog.create({
-          data: {
-            type: mail.type,
-            orderId: mail.orderId || null,
-            userId: mail.userId || null,
-            toEmail: mail.to,
-            idempotencyKey: mail.idempotencyKey || null,
-            status: 'FAILED',
-            error: err.message
-          }
-        });
+        try {
+          await prisma.emailLog.create({
+            data: {
+              type: mail.type,
+              orderId: mail.orderId || null,
+              userId: mail.userId || null,
+              toEmail: mail.to,
+              idempotencyKey: mail.idempotencyKey || null,
+              status: 'FAILED',
+              error: err.message
+            }
+          });
+        } catch (logErr: any) {
+          console.warn('[Mailer] Could not record email failure to emailLog:', logErr.message);
+        }
 
         // Simple backoff retry (up to 2 retries)
         const retries = mail.retries ?? 0;

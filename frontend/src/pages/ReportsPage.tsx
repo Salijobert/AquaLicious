@@ -6,6 +6,7 @@ import 'react-datepicker/dist/react-datepicker.css';
 import { subDays, differenceInDays } from 'date-fns';
 import { Printer, TrendingUp, TrendingDown, Minus, Calendar, DollarSign, Award, ShoppingBag } from 'lucide-react';
 import { VirtualTableBody, RevenueSkeletonRow } from '../components/virtual/index.js';
+import { AdminPageHeader } from '../components/AdminPageHeader.js';
 
 export const ReportsPage: React.FC = () => {
   const { role } = useAuth();
@@ -37,45 +38,43 @@ export const ReportsPage: React.FC = () => {
         {error ? (error as any).message : ''}
       </div>
 
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Reports & Analytics</h1>
-          <p className="text-xs text-slate-500 font-semibold">Financial Performance, Cost-of-Goods Margins & Linear Regression Modeling</p>
-        </div>
+      <AdminPageHeader
+        title="Reports & Analytics"
+        subtitle="Revenue metrics, transaction trends, and historical business summaries."
+        actions={
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-gray-300 shadow-xs text-xs">
+              <Calendar className="w-4 h-4 text-[#1565c0]" />
+              <DatePicker
+                selected={startDate}
+                onChange={(date: Date | null) => date && setStartDate(date)}
+                selectsStart
+                startDate={startDate}
+                endDate={endDate}
+                maxDate={new Date()}
+                dateFormat="yyyy-MM-dd"
+                className="w-24 text-center border-b border-gray-300 focus:outline-none font-semibold text-gray-800"
+              />
+              <span className="text-gray-400">to</span>
+              <DatePicker
+                selected={endDate}
+                onChange={(date: Date | null) => date && setEndDate(date)}
+                selectsEnd
+                startDate={startDate}
+                endDate={endDate}
+                minDate={startDate}
+                maxDate={new Date()}
+                dateFormat="yyyy-MM-dd"
+                className="w-24 text-center border-b border-gray-300 focus:outline-none font-semibold text-gray-800"
+              />
+            </div>
 
-        {/* PERIOD SELECTOR & PRINT */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-gray-300 shadow-xs text-xs">
-            <Calendar className="w-4 h-4 text-[#1565c0]" />
-            <DatePicker
-              selected={startDate}
-              onChange={(date: Date | null) => date && setStartDate(date)}
-              selectsStart
-              startDate={startDate}
-              endDate={endDate}
-              maxDate={new Date()}
-              dateFormat="yyyy-MM-dd"
-              className="w-24 text-center border-b border-gray-300 focus:outline-none font-semibold text-gray-800"
-            />
-            <span className="text-gray-400">to</span>
-            <DatePicker
-              selected={endDate}
-              onChange={(date: Date | null) => date && setEndDate(date)}
-              selectsEnd
-              startDate={startDate}
-              endDate={endDate}
-              minDate={startDate}
-              maxDate={new Date()}
-              dateFormat="yyyy-MM-dd"
-              className="w-24 text-center border-b border-gray-300 focus:outline-none font-semibold text-gray-800"
-            />
+            <button onClick={handlePrint} className="btn btn-outline btn-sm gap-1.5">
+              <Printer className="w-3.5 h-3.5" /> Print Report
+            </button>
           </div>
-
-          <button onClick={handlePrint} className="btn btn-outline btn-sm gap-1.5">
-            <Printer className="w-3.5 h-3.5" /> Print Report
-          </button>
-        </div>
-      </div>
+        }
+      />
 
       {/* KEY METRICS */}
       <div className="stat-grid" id="metricRow">

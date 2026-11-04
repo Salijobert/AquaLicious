@@ -151,17 +151,23 @@ process.on('unhandledRejection', (reason: any) => {
   }
 });
 
-const app = createApp();
-app.listen(config.port, () => {
-  console.log(`AquaLicious Express Server running on port ${config.port} (IPv4 + IPv6)`);
-  console.log(`Cluster ID: ${config.clusterId}`);
-  console.log(`Timezone: ${config.timezone}`);
+const isMain = process.argv[1] && (
+  fileURLToPath(import.meta.url).toLowerCase() === path.resolve(process.argv[1]).toLowerCase()
+);
 
-  // Start scheduled unverified account cleanup (PM2 cluster worker 0 guard)
-  AccountCleanupService.startSchedule();
+if (isMain) {
+  const app = createApp();
+  app.listen(config.port, () => {
+    console.log(`AquaLicious Express Server running on port ${config.port} (IPv4 + IPv6)`);
+    console.log(`Cluster ID: ${config.clusterId}`);
+    console.log(`Timezone: ${config.timezone}`);
 
-  // Notify PM2 that process is ready to handle connections
-  if (process.send) {
-    process.send('ready');
-  }
-});
+    // Start scheduled unverified account cleanup (PM2 cluster worker 0 guard)
+    AccountCleanupService.startSchedule();
+
+    // Notify PM2 that process is ready to handle connections
+    if (process.send) {
+      process.send('ready');
+    }
+  });
+}

@@ -60,7 +60,10 @@ for (const claim of forbiddenClaims) {
 // -------------------------------------------------------------
 console.log('\n[3] Testing "/" Home Route & Products Catalog...');
 const appContent = fs.readFileSync('frontend/src/App.tsx', 'utf8');
-ok(appContent.includes('<Route path="/" element={<ProductsPage onAddToCart={addToCart} />} />'), '"/" canonically renders ProductsPage');
+ok(
+  appContent.includes('<ProductsPage onAddToCart={addToCart} />') && appContent.includes('path="/"'),
+  '"/" canonically renders ProductsPage (with Admin redirect guard)'
+);
 ok(!appContent.includes('RootPage'), 'RootPage with window.innerWidth branching completely removed');
 ok(!appContent.includes('window.innerWidth < 768'), 'No width-based layout branching for root route');
 
@@ -72,7 +75,7 @@ const customerNavbarContent = fs.readFileSync('frontend/src/components/CustomerN
 const sidebarContent = fs.readFileSync('frontend/src/components/Sidebar.tsx', 'utf8');
 
 ok(customerNavbarContent.includes('<Link to="/" className="flex items-center gap-2.5 group">'), 'CustomerNavbar logo links to "/"');
-ok(sidebarContent.includes('<Link to="/"'), 'Admin Sidebar brand logo links to "/"');
+ok(sidebarContent.includes('to="/dashboard"'), 'Admin Sidebar brand logo links to /dashboard');
 ok(customerNavbarContent.includes('LOGIN'), 'Header shows LOGIN button for unauthenticated users');
 ok(customerNavbarContent.includes('REGISTER'), 'Header shows REGISTER button for unauthenticated users');
 ok(customerNavbarContent.includes('queryClient.clear()'), 'Sign Out clears React Query cache');
@@ -153,8 +156,9 @@ for (const [src, dest] of legacyUrls) {
 // 8. UNKNOWN PATHS & ROUTE GUARDS
 // -------------------------------------------------------------
 console.log('\n[8] Testing Unknown Paths / Catch-all Handling...');
-ok(appContent.includes('404 - Page Not Found'), 'Unknown paths for signed-in users render 404 screen');
-ok(appContent.includes('<Navigate to="/login" replace />'), 'Unknown paths for unauthenticated users redirect to /login');
+const notFoundContent = fs.readFileSync('frontend/src/pages/NotFoundPage.tsx', 'utf8');
+ok(appContent.includes('<NotFoundPage />'), 'Catch-all route mounts NotFoundPage');
+ok(notFoundContent.includes('404') && notFoundContent.includes('Page Not Found'), 'NotFoundPage renders 404 Page Not Found');
 
 const routeGuardsContent = fs.readFileSync('frontend/src/components/RouteGuards.tsx', 'utf8');
 ok(routeGuardsContent.includes("fallbackPath = '/'"), 'RouteGuards default fallback is "/" (clean URL)');

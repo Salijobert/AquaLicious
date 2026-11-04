@@ -2,6 +2,8 @@ import express from '../backend/node_modules/express/index.js';
 import assert from 'node:assert/strict';
 
 process.env.NODE_ENV = 'production';
+process.env.ALLOW_LOCAL_AUTH_FALLBACK = 'false';
+process.env.ADMIN_FIREBASE_UIDS = 'UCzqYvdMqPdDeiZtzGH12ShaG0M2';
 process.env.JWT_SECRET = 'a-very-strong-production-jwt-secret-with-more-than-32-chars-123456';
 
 const { default: authRoutes } = await import('../backend/dist/routes/authRoutes.js');

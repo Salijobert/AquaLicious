@@ -1,7 +1,8 @@
 import { chromium } from '../tools/node_modules/playwright/index.mjs';
 import assert from 'node:assert/strict';
+import './safety_guard.mjs';
 
-const baseUrl = process.env.AQ_TEST_WEB || 'http://127.0.0.1:8088';
+const baseUrl = process.env.AQ_TEST_WEB || 'http://127.0.0.1:8090';
 const adminPassword = process.env.AQ_ADMIN_PASSWORD || 'admin123';
 
 console.log('=== AQUALICIOUS VIRTUAL SCROLLING & SKELETON VERIFICATION ===');
@@ -28,6 +29,25 @@ function report(condition, message) {
 try {
   const context = await browser.newContext({
     viewport: { width: 1280, height: 800 }
+  });
+  await context.route('**', async (route) => {
+    const req = route.request();
+    const reqUrl = req.url();
+    if (reqUrl.includes('ngrok-free.dev') || reqUrl.includes('localhost:8088')) {
+      const u = new URL(reqUrl);
+      const dest = `${baseUrl}${u.pathname}${u.search}`;
+      try {
+        const response = await context.request.fetch(dest, {
+          method: req.method(),
+          headers: req.headers(),
+          data: req.postDataBuffer() || undefined
+        });
+        return await route.fulfill({ response }).catch(() => {});
+      } catch (err) {
+        return route.abort().catch(() => {});
+      }
+    }
+    return route.continue();
   });
   const page = await context.newPage();
 
@@ -72,7 +92,7 @@ try {
   // =========================================================================
   console.log('\n[2] Testing Orders Virtual Scrolling & Skeletons...');
   await page.goto(`${baseUrl}/orders`);
-  await page.waitForSelector('h1:has-text("My Orders")');
+  await page.waitForSelector('h1:has-text("Orders"), h1:has-text("My Orders")');
 
   const ordersContainer = page.locator('div[class*="overflow-y-auto"] div[data-virtual-count]');
   await ordersContainer.waitFor({ timeout: 5000 });
@@ -122,7 +142,7 @@ try {
   // =========================================================================
   console.log('\n[4] Testing User Management Virtual Scrolling & Skeletons...');
   await page.goto(`${baseUrl}/users`);
-  await page.waitForSelector('h1:has-text("User Management")');
+  await page.waitForSelector('h1:has-text("Users"), h1:has-text("User Management")');
 
   const usersTbody = page.locator('div.card:has-text("User Accounts") tbody[data-virtual-count]');
   await usersTbody.waitFor({ timeout: 5000 });
@@ -146,7 +166,7 @@ try {
   // =========================================================================
   console.log('\n[5] Testing Walk-in POS Sales History Virtual Scrolling & Skeletons...');
   await page.goto(`${baseUrl}/sales`);
-  await page.waitForSelector('h1:has-text("Quick checkout")');
+  await page.waitForSelector('h1:has-text("Sales (POS)"), h1:has-text("Quick checkout")');
 
   const salesTbody = page.locator('div.card:has-text("Walk-in POS Sales History") tbody[data-virtual-count]');
   await salesTbody.waitFor({ timeout: 5000 });

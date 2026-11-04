@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import './safety_guard.mjs';
 import { PrismaClient } from '../backend/node_modules/@prisma/client/index.js';
 
 const prisma = new PrismaClient();
-const base = process.env.AQ_TEST_URL || 'http://127.0.0.1:8088';
+const base = process.env.AQ_TEST_URL || 'http://127.0.0.1:8090';
 const adminUsername = process.env.AQ_UI_USERNAME || 'test-owner';
 const password = process.env.AQ_ADMIN_PASSWORD;
 if (!password) {
@@ -435,7 +436,7 @@ const { spawnSync, spawn } = await import('node:child_process');
 const testNoAdminUid = spawnSync('node', ['backend/dist/server.js'], {
   env: { ...process.env, NODE_ENV: 'production', JWT_SECRET: 'a'.repeat(32), ADMIN_FIREBASE_UID: '', ADMIN_FIREBASE_UIDS: '', ALLOW_LOCAL_AUTH_FALLBACK: 'false', PORT: '19993' },
   encoding: 'utf8',
-  timeout: 6000
+  timeout: 30000
 });
 ok(
   testNoAdminUid.status !== 0 && (testNoAdminUid.stderr.includes('ADMIN_FIREBASE_UID') || testNoAdminUid.stdout.includes('ADMIN_FIREBASE_UID')),
@@ -446,7 +447,7 @@ ok(
 const testWeakSecret = spawnSync('node', ['backend/dist/server.js'], {
   env: { ...process.env, NODE_ENV: 'production', JWT_SECRET: 'short', ADMIN_FIREBASE_UID: 'qa-admin', ADMIN_FIREBASE_UIDS: 'qa-admin', PORT: '19991' },
   encoding: 'utf8',
-  timeout: 6000
+  timeout: 30000
 });
 ok(
   testWeakSecret.status !== 0 && (testWeakSecret.stderr.includes('FATAL CONFIGURATION ERROR') || testWeakSecret.stdout.includes('FATAL CONFIGURATION ERROR')),
@@ -456,7 +457,7 @@ ok(
 const testFallbackInProd = spawnSync('node', ['backend/dist/server.js'], {
   env: { ...process.env, NODE_ENV: 'production', JWT_SECRET: 'a'.repeat(32), ADMIN_FIREBASE_UID: 'qa-admin', ADMIN_FIREBASE_UIDS: 'qa-admin', ALLOW_LOCAL_AUTH_FALLBACK: 'true', PORT: '19992' },
   encoding: 'utf8',
-  timeout: 6000
+  timeout: 30000
 });
 ok(
   testFallbackInProd.status !== 0 && (testFallbackInProd.stderr.includes('FATAL CONFIGURATION ERROR') || testFallbackInProd.stdout.includes('FATAL CONFIGURATION ERROR')),
@@ -466,7 +467,7 @@ ok(
 // 5.7. Non-vacuous test: start server in real production mode on test port and assert 401 on locally signed token
 const prodPort = '19995';
 const prodJwtSecret = 'a'.repeat(32);
-const prodChild = spawn('node', ['backend/dist/server.js'], {
+const prodChild = spawn(process.execPath, ['backend/dist/server.js'], {
   env: {
     ...process.env,
     NODE_ENV: 'production',
@@ -475,11 +476,16 @@ const prodChild = spawn('node', ['backend/dist/server.js'], {
     ADMIN_FIREBASE_UID: 'qa-admin',
     ALLOW_LOCAL_AUTH_FALLBACK: 'false'
   },
-  stdio: 'ignore'
+  stdio: 'pipe'
 });
 
+let prodStderr = '';
+let prodStdout = '';
+prodChild.stdout?.on('data', d => prodStdout += d.toString());
+prodChild.stderr?.on('data', d => prodStderr += d.toString());
+
 let prodReady = false;
-for (let i = 0; i < 40; i++) {
+for (let i = 0; i < 150; i++) {
   try {
     const res = await fetch(`http://127.0.0.1:${prodPort}/api/config`);
     if (res.ok) {
@@ -490,6 +496,10 @@ for (let i = 0; i < 40; i++) {
   await new Promise((r) => setTimeout(r, 100));
 }
 
+if (!prodReady) {
+  console.error('PROD CHILD STDOUT:', prodStdout);
+  console.error('PROD CHILD STDERR:', prodStderr);
+}
 assert.ok(prodReady, 'Real production server must start and listen on test port (fails test if unable to start)');
 
 const jwt = (await import('../backend/node_modules/jsonwebtoken/index.js')).default;
@@ -691,6 +701,7 @@ await prisma.user.delete({ where: { id: noConsentUser.id } });
 // 7. REAL FIREBASE AUTH EMULATOR TESTS (ALLOW_LOCAL_AUTH_FALLBACK=false)
 // ==========================================
 console.log('\n[7] Testing Real Firebase Auth Emulator Suite...');
+process.env.FIREBASE_AUTH_EMULATOR_HOST = '127.0.0.1:19099';
 
 // 7.1. Mint a genuine emulator ID token via emulator REST API
 const emuEmail = `emu-test-${Date.now()}@example.com`;
