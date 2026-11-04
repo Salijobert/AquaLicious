@@ -151,8 +151,10 @@ process.on('unhandledRejection', (reason: any) => {
   }
 });
 
-const isMain = process.argv[1] && (
-  fileURLToPath(import.meta.url).toLowerCase() === path.resolve(process.argv[1]).toLowerCase()
+const isMain = Boolean(
+  process.env.pm_id !== undefined ||
+  process.env.NODE_APP_INSTANCE !== undefined ||
+  (process.argv[1] && fileURLToPath(import.meta.url).toLowerCase() === path.resolve(process.argv[1]).toLowerCase())
 );
 
 if (isMain) {
