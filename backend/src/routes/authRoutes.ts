@@ -5,6 +5,7 @@ import { Role } from '@prisma/client';
 import { sanitize, apiLimiter } from '../middleware/security.js';
 import { Mailer } from '../services/mailer.js';
 import admin from 'firebase-admin';
+import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 
 const router = Router();
@@ -22,63 +23,92 @@ const registerSchema = z.object({
 }).strict();
 
 async function buildFirebaseVerificationLink(email: string, name: string): Promise<string> {
-  const defaultFallback = `${config.frontendUrl}/verify-email-complete?mode=verifyEmail&email=${encodeURIComponent(email)}`;
-  if (admin.apps.length === 0) return defaultFallback;
+  const cleanEmail = email.trim().toLowerCase();
+  // Always create a cryptographically signed verification token (valid 48 hours)
+  const serverToken = jwt.sign(
+    { email: cleanEmail, type: 'email_verification' },
+    config.jwtSecret,
+    { expiresIn: '48h' }
+  );
 
-  try {
+  let oobCode = '';
+  let apiKey = 'AIzaSyCbrkSEGe65o2x7BY-h-syTdscYzLDrsVU';
+
+  if (admin.apps.length > 0) {
     try {
-      await admin.auth().getUserByEmail(email);
-    } catch {
-      await admin.auth().createUser({
-        email,
-        displayName: name,
-        emailVerified: false
+      try {
+        await admin.auth().getUserByEmail(cleanEmail);
+      } catch {
+        await admin.auth().createUser({
+          email: cleanEmail,
+          displayName: name,
+          emailVerified: false
+        });
+      }
+
+      const rawLink = await admin.auth().generateEmailVerificationLink(cleanEmail, {
+        url: `${config.frontendUrl}/verify-email-complete`
       });
-    }
 
-    const rawLink = await admin.auth().generateEmailVerificationLink(email, {
-      url: `${config.frontendUrl}/verify-email-complete`
-    });
-
-    const parsed = new URL(rawLink);
-    const oobCode = parsed.searchParams.get('oobCode');
-    const apiKey = parsed.searchParams.get('apiKey') || 'AIzaSyCbrkSEGe65o2x7BY-h-syTdscYzLDrsVU';
-    if (oobCode) {
-      return `${config.frontendUrl}/verify-email-complete?mode=verifyEmail&oobCode=${encodeURIComponent(oobCode)}&apiKey=${encodeURIComponent(apiKey)}`;
+      const parsed = new URL(rawLink);
+      oobCode = parsed.searchParams.get('oobCode') || '';
+      apiKey = parsed.searchParams.get('apiKey') || apiKey;
+    } catch (err: any) {
+      console.warn('[Auth] Firebase generateEmailVerificationLink warning:', err.message);
     }
-    return rawLink;
-  } catch (err: any) {
-    console.warn('[Auth] Verification link generation notice:', err.message);
-    return defaultFallback;
   }
+
+  const query = new URLSearchParams({
+    mode: 'verifyEmail',
+    email: cleanEmail,
+    token: serverToken
+  });
+  if (oobCode) query.set('oobCode', oobCode);
+  if (apiKey) query.set('apiKey', apiKey);
+
+  return `${config.frontendUrl}/verify-email-complete?${query.toString()}`;
 }
 
 async function buildFirebasePasswordResetLink(email: string, name?: string): Promise<string> {
-  const defaultFallback = `${config.frontendUrl}/reset-password-complete?mode=resetPassword`;
-  if (admin.apps.length === 0) return defaultFallback;
+  const cleanEmail = email.trim().toLowerCase();
+  const serverToken = jwt.sign(
+    { email: cleanEmail, type: 'password_reset' },
+    config.jwtSecret,
+    { expiresIn: '2h' }
+  );
 
-  try {
+  let oobCode = '';
+  let apiKey = 'AIzaSyCbrkSEGe65o2x7BY-h-syTdscYzLDrsVU';
+
+  if (admin.apps.length > 0) {
     try {
-      await admin.auth().getUserByEmail(email);
-    } catch {
-      return defaultFallback;
-    }
+      try {
+        await admin.auth().getUserByEmail(cleanEmail);
+      } catch {
+        // user does not exist in Firebase yet
+      }
 
-    const rawLink = await admin.auth().generatePasswordResetLink(email, {
-      url: `${config.frontendUrl}/reset-password-complete`
-    });
+      const rawLink = await admin.auth().generatePasswordResetLink(cleanEmail, {
+        url: `${config.frontendUrl}/reset-password-complete`
+      });
 
-    const parsed = new URL(rawLink);
-    const oobCode = parsed.searchParams.get('oobCode');
-    const apiKey = parsed.searchParams.get('apiKey') || 'AIzaSyCbrkSEGe65o2x7BY-h-syTdscYzLDrsVU';
-    if (oobCode) {
-      return `${config.frontendUrl}/reset-password-complete?mode=resetPassword&oobCode=${encodeURIComponent(oobCode)}&apiKey=${encodeURIComponent(apiKey)}`;
+      const parsed = new URL(rawLink);
+      oobCode = parsed.searchParams.get('oobCode') || '';
+      apiKey = parsed.searchParams.get('apiKey') || apiKey;
+    } catch (err: any) {
+      console.warn('[Auth] Firebase generatePasswordResetLink warning:', err.message);
     }
-    return rawLink;
-  } catch (err: any) {
-    console.warn('[Auth] Password reset link generation notice:', err.message);
-    return defaultFallback;
   }
+
+  const query = new URLSearchParams({
+    mode: 'resetPassword',
+    email: cleanEmail,
+    token: serverToken
+  });
+  if (oobCode) query.set('oobCode', oobCode);
+  if (apiKey) query.set('apiKey', apiKey);
+
+  return `${config.frontendUrl}/reset-password-complete?${query.toString()}`;
 }
 
 router.post('/', async (req: Request, res: Response) => {
@@ -451,6 +481,114 @@ router.get('/verification-status', async (req: Request, res: Response) => {
   }
 
   return res.json({ verified: isVerified });
+});
+
+router.post('/verify-email-token', apiLimiter, async (req: Request, res: Response) => {
+  const { email, token } = req.body;
+  if (!email || !token || typeof email !== 'string' || typeof token !== 'string') {
+    return res.status(422).json({ error: 'Email and token are required' });
+  }
+
+  const cleanEmail = sanitize(email).trim().toLowerCase();
+  try {
+    const decoded = jwt.verify(token, config.jwtSecret) as { email?: string; type?: string };
+    if (!decoded || decoded.type !== 'email_verification' || decoded.email?.toLowerCase() !== cleanEmail) {
+      return res.status(400).json({ error: 'Invalid or expired verification token' });
+    }
+
+    const user = await prisma.user.findFirst({
+      where: { email: cleanEmail }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User account not found' });
+    }
+
+    // 1. Mark verified in PostgreSQL
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { emailVerified: true }
+    });
+
+    // 2. Mark verified in Firebase Auth
+    if (admin.apps.length > 0) {
+      try {
+        let fbUser: admin.auth.UserRecord;
+        try {
+          fbUser = await admin.auth().getUserByEmail(cleanEmail);
+        } catch {
+          fbUser = await admin.auth().getUser(user.firebaseUid);
+        }
+        if (fbUser) {
+          await admin.auth().updateUser(fbUser.uid, { emailVerified: true });
+        }
+      } catch (fbErr: any) {
+        console.warn('[Auth] Firebase updateUser error during token verification:', fbErr.message);
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Email verified successfully!'
+    });
+  } catch {
+    return res.status(400).json({ error: 'Invalid or expired verification token' });
+  }
+});
+
+router.post('/reset-password-token', apiLimiter, async (req: Request, res: Response) => {
+  const { email, token, newPassword } = req.body;
+  if (!email || !token || !newPassword || typeof email !== 'string' || typeof token !== 'string' || typeof newPassword !== 'string') {
+    return res.status(422).json({ error: 'Email, token, and new password are required' });
+  }
+
+  if (newPassword.length < 6) {
+    return res.status(422).json({ error: 'Password must be at least 6 characters' });
+  }
+
+  const cleanEmail = sanitize(email).trim().toLowerCase();
+  try {
+    const decoded = jwt.verify(token, config.jwtSecret) as { email?: string; type?: string };
+    if (!decoded || decoded.type !== 'password_reset' || decoded.email?.toLowerCase() !== cleanEmail) {
+      return res.status(400).json({ error: 'Invalid or expired password reset token' });
+    }
+
+    const user = await prisma.user.findFirst({
+      where: { email: cleanEmail }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User account not found' });
+    }
+
+    // Update password in Firebase Auth
+    if (admin.apps.length > 0) {
+      try {
+        let fbUser: admin.auth.UserRecord;
+        try {
+          fbUser = await admin.auth().getUserByEmail(cleanEmail);
+        } catch {
+          fbUser = await admin.auth().getUser(user.firebaseUid);
+        }
+        if (fbUser) {
+          await admin.auth().updateUser(fbUser.uid, {
+            password: newPassword
+          });
+          await admin.auth().revokeRefreshTokens(fbUser.uid).catch(() => {});
+        }
+      } catch (fbErr: any) {
+        console.error('[Auth] Failed to update password in Firebase:', fbErr);
+        return res.status(500).json({ error: 'Failed to update password in authentication service' });
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Password reset successfully!'
+    });
+  } catch {
+    return res.status(400).json({ error: 'Invalid or expired password reset token' });
+  }
 });
 
 router.post('/post-reset', apiLimiter, async (req: Request, res: Response) => {

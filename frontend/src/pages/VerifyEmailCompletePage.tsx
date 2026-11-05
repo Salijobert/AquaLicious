@@ -18,6 +18,7 @@ export const VerifyEmailCompletePage: React.FC = () => {
       const params = new URLSearchParams(rawSearch);
       const oobCode = params.get('oobCode');
       const email = params.get('email');
+      const token = params.get('token');
 
       // Helper to check if already verified in Firebase or backend
       const checkAlreadyVerified = async (): Promise<boolean> => {
@@ -40,15 +41,40 @@ export const VerifyEmailCompletePage: React.FC = () => {
         return false;
       };
 
-      // 1. If Firebase action code is present, verify via Firebase Web SDK
+      // 1. If server signed token is present, verify via backend authority
+      if (token && email) {
+        try {
+          const res = await resolver.request<{ success: boolean }>('/api/auth/verify-email-token', {
+            method: 'POST',
+            data: { email, token }
+          });
+          if (res && res.success) {
+            if (oobCode && !oobCode.startsWith('code-')) {
+              applyActionCode(auth, oobCode).catch(() => {});
+            }
+            if (auth.currentUser) {
+              await auth.currentUser.reload().catch(() => {});
+            }
+            if (isMounted) setStatus('success');
+            return;
+          }
+        } catch (tokenErr: any) {
+          console.warn('Backend token verification error:', tokenErr.message);
+        }
+      }
+
+      // 2. If Firebase action code is present, verify via Firebase Web SDK
       if (oobCode && !oobCode.startsWith('code-')) {
         try {
           await applyActionCode(auth, oobCode);
           if (auth.currentUser) {
             await auth.currentUser.reload();
-            const token = await auth.currentUser.getIdToken(true);
-            resolver.setToken(token);
+            const idTok = await auth.currentUser.getIdToken(true);
+            resolver.setToken(idTok);
             await resolver.request('/api/auth').catch(() => {});
+          }
+          if (email) {
+            await resolver.request<{ verified: boolean }>(`/api/auth/verification-status?email=${encodeURIComponent(email)}`).catch(() => {});
           }
           if (isMounted) setStatus('success');
           return;
@@ -74,7 +100,7 @@ export const VerifyEmailCompletePage: React.FC = () => {
         }
       }
 
-      // 2. If no oobCode or fallback link, check if the account is already verified
+      // 3. If no oobCode or fallback link, check if the account is already verified
       const alreadyVerified = await checkAlreadyVerified();
       if (alreadyVerified && isMounted) {
         setStatus('success');

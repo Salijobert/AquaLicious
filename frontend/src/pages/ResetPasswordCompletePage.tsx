@@ -7,6 +7,7 @@ import { KeyRound, CheckCircle2, AlertCircle, RefreshCw, Lock, ArrowRight } from
 
 export const ResetPasswordCompletePage: React.FC = () => {
   const [oobCode, setOobCode] = useState<string | null>(null);
+  const [serverToken, setServerToken] = useState<string | null>(null);
   const [accountEmail, setAccountEmail] = useState<string>('');
   const [isValidating, setIsValidating] = useState<boolean>(true);
   const [codeError, setCodeError] = useState<string | null>(null);
@@ -21,7 +22,19 @@ export const ResetPasswordCompletePage: React.FC = () => {
     const rawSearch = window.location.search || (window.location.hash.includes('?') ? '?' + window.location.hash.split('?')[1] : '');
     const params = new URLSearchParams(rawSearch);
     const code = params.get('oobCode');
+    const token = params.get('token');
+    const emailParam = params.get('email');
 
+    // 1. If server signed token is present
+    if (token && emailParam) {
+      setServerToken(token);
+      setAccountEmail(emailParam);
+      setIsValidating(false);
+      if (code) setOobCode(code);
+      return;
+    }
+
+    // 2. If Firebase action code is present
     if (!code) {
       setCodeError('Missing password reset action code.');
       setIsValidating(false);
@@ -62,7 +75,7 @@ export const ResetPasswordCompletePage: React.FC = () => {
       return;
     }
 
-    if (!oobCode) {
+    if (!oobCode && !serverToken) {
       setFormError('Missing reset action code.');
       return;
     }
@@ -70,17 +83,31 @@ export const ResetPasswordCompletePage: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      // 1. Confirm password reset in Firebase
-      await confirmPasswordReset(auth, oobCode, newPassword);
-
-      // 2. Invalidate previous sessions across devices via backend admin SDK
-      try {
-        await resolver.request('/api/auth/post-reset', {
+      if (serverToken && accountEmail) {
+        await resolver.request('/api/auth/reset-password-token', {
           method: 'POST',
-          data: { email: accountEmail }
+          data: {
+            email: accountEmail,
+            token: serverToken,
+            newPassword
+          }
         });
-      } catch (postErr) {
-        console.warn('Backend post-reset notification error:', postErr);
+        if (oobCode) {
+          confirmPasswordReset(auth, oobCode, newPassword).catch(() => {});
+        }
+      } else if (oobCode) {
+        // Confirm password reset in Firebase Web SDK
+        await confirmPasswordReset(auth, oobCode, newPassword);
+
+        // Invalidate previous sessions across devices via backend admin SDK
+        try {
+          await resolver.request('/api/auth/post-reset', {
+            method: 'POST',
+            data: { email: accountEmail }
+          });
+        } catch (postErr) {
+          console.warn('Backend post-reset notification error:', postErr);
+        }
       }
 
       setIsSuccess(true);
