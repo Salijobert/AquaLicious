@@ -35,33 +35,81 @@ export interface AuthProfile {
  * Authenticates user.
  * Supports Firebase Web SDK sign-in and local API login.
  */
-export async function loginUser(usernameOrEmail: string, password: string):Promise<{ token: string; user: AuthProfile }> {
-  // If input is an email, attempt Firebase Web SDK first
-  if (usernameOrEmail.includes('@')) {
-    try {
-      const userCredential = await signInWithEmailAndPassword(auth, usernameOrEmail, password);
-      const token = await userCredential.user.getIdToken();
-      resolver.setToken(token);
+export async function loginUser(usernameOrEmail: string, password: string): Promise<{ token: string; user: AuthProfile }> {
+  const cleanInput = (usernameOrEmail || '').trim();
+  if (!cleanInput) {
+    throw new Error('Please enter your username or email address.');
+  }
+  if (!password) {
+    throw new Error('Please enter your password.');
+  }
 
-      // Fetch profile from PostgreSQL backend
-      const profileRes = await resolver.request<any>('/api/auth');
-      return { token, user: profileRes };
-    } catch (fbErr: any) {
-      console.warn('Firebase Web SDK sign-in error, falling back to cluster login:', fbErr.message);
+  // 1. Direct admin login via Node/Express cluster
+  if (cleanInput.toLowerCase() === 'admin') {
+    try {
+      const res = await resolver.request<{ token: string; user: AuthProfile }>('/api/auth', {
+        method: 'POST',
+        data: {
+          username: 'admin',
+          password
+        }
+      });
+      resolver.setToken(res.token);
+      return res;
+    } catch (err: any) {
+      throw new Error(err.message || 'Invalid username or password.');
     }
   }
 
-  // Cluster direct authentication (Node/Express API)
-  const res = await resolver.request<{ token: string; user: AuthProfile }>('/api/auth', {
-    method: 'POST',
-    data: {
-      username: usernameOrEmail,
-      password
+  // 2. Resolve email for username or email
+  let emailToUse = cleanInput;
+  if (!cleanInput.includes('@')) {
+    try {
+      const resolveRes = await resolver.request<{ email: string; role: string }>('/api/auth', {
+        method: 'POST',
+        data: {
+          action: 'resolve_identifier',
+          identifier: cleanInput
+        }
+      });
+      if (resolveRes && resolveRes.email) {
+        emailToUse = resolveRes.email;
+      } else {
+        throw new Error('No account found with that username.');
+      }
+    } catch {
+      throw new Error('No account found with that username. Please check your username or use your registered email address.');
     }
-  });
+  }
 
-  resolver.setToken(res.token);
-  return res;
+  // 3. Authenticate with Google Firebase Web SDK
+  try {
+    const userCredential = await signInWithEmailAndPassword(auth, emailToUse.toLowerCase(), password);
+    const token = await userCredential.user.getIdToken();
+    resolver.setToken(token);
+
+    // Fetch profile from PostgreSQL backend
+    const profileRes = await resolver.request<any>('/api/auth');
+    return { token, user: profileRes };
+  } catch (fbErr: any) {
+    let message = 'Invalid username/email or password.';
+    if (
+      fbErr.code === 'auth/user-not-found' ||
+      fbErr.code === 'auth/wrong-password' ||
+      fbErr.code === 'auth/invalid-credential'
+    ) {
+      message = 'Invalid email or password. Please verify your credentials.';
+    } else if (fbErr.code === 'auth/too-many-requests') {
+      message = 'Access temporarily disabled due to multiple failed login attempts. Please reset your password or try again later.';
+    } else if (fbErr.code === 'auth/user-disabled') {
+      message = 'This user account has been disabled.';
+    } else if (fbErr.code === 'auth/network-request-failed') {
+      message = 'Network error. Please check your internet connection.';
+    } else if (fbErr.message) {
+      message = fbErr.message;
+    }
+    throw new Error(message);
+  }
 }
 
 export async function registerCustomer(

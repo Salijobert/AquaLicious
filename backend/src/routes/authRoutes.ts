@@ -21,6 +21,66 @@ const registerSchema = z.object({
   termsVersion: z.string().min(1, 'Terms version is required')
 }).strict();
 
+async function buildFirebaseVerificationLink(email: string, name: string): Promise<string> {
+  const defaultFallback = `${config.frontendUrl}/verify-email-complete?mode=verifyEmail&email=${encodeURIComponent(email)}`;
+  if (admin.apps.length === 0) return defaultFallback;
+
+  try {
+    try {
+      await admin.auth().getUserByEmail(email);
+    } catch {
+      await admin.auth().createUser({
+        email,
+        displayName: name,
+        emailVerified: false
+      });
+    }
+
+    const rawLink = await admin.auth().generateEmailVerificationLink(email, {
+      url: `${config.frontendUrl}/verify-email-complete`
+    });
+
+    const parsed = new URL(rawLink);
+    const oobCode = parsed.searchParams.get('oobCode');
+    const apiKey = parsed.searchParams.get('apiKey') || 'AIzaSyCbrkSEGe65o2x7BY-h-syTdscYzLDrsVU';
+    if (oobCode) {
+      return `${config.frontendUrl}/verify-email-complete?mode=verifyEmail&oobCode=${encodeURIComponent(oobCode)}&apiKey=${encodeURIComponent(apiKey)}`;
+    }
+    return rawLink;
+  } catch (err: any) {
+    console.warn('[Auth] Verification link generation notice:', err.message);
+    return defaultFallback;
+  }
+}
+
+async function buildFirebasePasswordResetLink(email: string, name?: string): Promise<string> {
+  const defaultFallback = `${config.frontendUrl}/reset-password-complete?mode=resetPassword`;
+  if (admin.apps.length === 0) return defaultFallback;
+
+  try {
+    try {
+      await admin.auth().getUserByEmail(email);
+    } catch {
+      return defaultFallback;
+    }
+
+    const rawLink = await admin.auth().generatePasswordResetLink(email, {
+      url: `${config.frontendUrl}/reset-password-complete`
+    });
+
+    const parsed = new URL(rawLink);
+    const oobCode = parsed.searchParams.get('oobCode');
+    const apiKey = parsed.searchParams.get('apiKey') || 'AIzaSyCbrkSEGe65o2x7BY-h-syTdscYzLDrsVU';
+    if (oobCode) {
+      return `${config.frontendUrl}/reset-password-complete?mode=resetPassword&oobCode=${encodeURIComponent(oobCode)}&apiKey=${encodeURIComponent(apiKey)}`;
+    }
+    return rawLink;
+  } catch (err: any) {
+    console.warn('[Auth] Password reset link generation notice:', err.message);
+    return defaultFallback;
+  }
+}
+
 router.post('/', async (req: Request, res: Response) => {
   const { action, username, password, name, role, idToken } = req.body;
 
@@ -103,17 +163,7 @@ router.post('/', async (req: Request, res: Response) => {
     });
 
     // Generate Firebase verification link & send verification email asynchronously
-    let verificationLink = `${config.frontendUrl}/verify-email-complete?mode=verifyEmail&email=${encodeURIComponent(user.email)}&oobCode=code-${Date.now()}`;
-    try {
-      if (admin.apps.length > 0) {
-        verificationLink = await admin.auth().generateEmailVerificationLink(user.email, {
-          url: `${config.frontendUrl}/verify-email-complete`
-        });
-      }
-    } catch (fbErr: any) {
-      console.warn('[Auth] Verification link fallback:', fbErr.message);
-    }
-
+    const verificationLink = await buildFirebaseVerificationLink(user.email, user.name);
     Mailer.sendVerificationEmail(user.email, user.name, verificationLink, user.id).catch((err) => {
       console.error('[Auth] Verification email dispatch failure:', err);
     });
@@ -174,17 +224,7 @@ router.post('/', async (req: Request, res: Response) => {
     });
 
     if (user) {
-      let resetLink = `${config.frontendUrl}/reset-password-complete?mode=resetPassword&oobCode=code-${Date.now()}`;
-      try {
-        if (admin.apps.length > 0) {
-          resetLink = await admin.auth().generatePasswordResetLink(user.email, {
-            url: `${config.frontendUrl}/reset-password-complete`
-          });
-        }
-      } catch (err: any) {
-        console.warn('[Auth] Password reset link fallback:', err.message);
-      }
-
+      const resetLink = await buildFirebasePasswordResetLink(user.email, user.name);
       Mailer.sendPasswordResetEmail(user.email, user.name, resetLink, user.id).catch((err) => {
         console.error('[Auth] Password reset email failure:', err);
       });
@@ -197,6 +237,37 @@ router.post('/', async (req: Request, res: Response) => {
 
     return res.status(200).json({
       message: 'If an account exists with that email, a password reset link has been sent.'
+    });
+  }
+
+  // 1d. Resolve username or email to email address for Firebase login
+  if (action === 'resolve_identifier') {
+    const { identifier } = req.body;
+    if (!identifier || typeof identifier !== 'string') {
+      return res.status(422).json({ error: 'Identifier is required' });
+    }
+    const cleanId = sanitize(identifier).trim();
+    if (cleanId.toLowerCase() === 'admin') {
+      return res.status(200).json({ email: 'admin@aqualicious.local', role: 'Administrator' });
+    }
+
+    const user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { username: { equals: cleanId, mode: 'insensitive' } },
+          { email: { equals: cleanId.toLowerCase(), mode: 'insensitive' } }
+        ]
+      },
+      select: { email: true, role: true }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'Account not found' });
+    }
+
+    return res.status(200).json({
+      email: user.email,
+      role: user.role === Role.ADMIN ? 'Administrator' : 'Customer'
     });
   }
 
@@ -302,17 +373,7 @@ router.post('/forgot-password', apiLimiter, async (req: Request, res: Response) 
   const user = await prisma.user.findFirst({ where: { email } });
 
   if (user) {
-    let resetLink = `${config.frontendUrl}/reset-password-complete?mode=resetPassword&oobCode=code-${Date.now()}`;
-    try {
-      if (admin.apps.length > 0) {
-        resetLink = await admin.auth().generatePasswordResetLink(user.email, {
-          url: `${config.frontendUrl}/reset-password-complete`
-        });
-      }
-    } catch (err: any) {
-      console.warn('[Auth] Password reset link fallback:', err.message);
-    }
-
+    const resetLink = await buildFirebasePasswordResetLink(user.email, user.name);
     Mailer.sendPasswordResetEmail(user.email, user.name, resetLink, user.id).catch((err) => {
       console.error('[Auth] Password reset email failure:', err);
     });
@@ -340,31 +401,7 @@ router.post('/resend-verification', apiLimiter, async (req: Request, res: Respon
   const user = await prisma.user.findFirst({ where: { email } });
 
   if (user && !user.emailVerified) {
-    let verificationLink = `${config.frontendUrl}/verify-email-complete?mode=verifyEmail&email=${encodeURIComponent(user.email)}&oobCode=code-${Date.now()}`;
-    try {
-      if (admin.apps.length > 0) {
-        let fbUser: admin.auth.UserRecord;
-        try {
-          fbUser = await admin.auth().getUserByEmail(user.email);
-        } catch (notFound) {
-          fbUser = await admin.auth().createUser({
-            email: user.email,
-            displayName: user.name,
-            emailVerified: false
-          });
-          await prisma.user.update({
-            where: { id: user.id },
-            data: { firebaseUid: fbUser.uid }
-          });
-        }
-        verificationLink = await admin.auth().generateEmailVerificationLink(user.email, {
-          url: `${config.frontendUrl}/verify-email-complete`
-        });
-      }
-    } catch (err: any) {
-      console.warn('[Auth] Resend verification link fallback:', err.message);
-    }
-
+    const verificationLink = await buildFirebaseVerificationLink(user.email, user.name);
     Mailer.sendVerificationEmail(user.email, user.name, verificationLink, user.id).catch((err) => {
       console.error('[Auth] Resend verification email failure:', err);
     });
@@ -378,6 +415,42 @@ router.post('/resend-verification', apiLimiter, async (req: Request, res: Respon
   return res.status(200).json({
     message: 'If an unverified account exists with that email, a verification link has been sent.'
   });
+});
+
+router.get('/verification-status', async (req: Request, res: Response) => {
+  const email = (req.query.email as string)?.trim().toLowerCase();
+  if (!email) {
+    return res.status(422).json({ error: 'Email parameter required' });
+  }
+
+  // Check in Firebase Admin SDK if available
+  let firebaseVerified = false;
+  if (admin.apps.length > 0) {
+    try {
+      const fbUser = await admin.auth().getUserByEmail(email);
+      firebaseVerified = Boolean(fbUser.emailVerified);
+    } catch {
+      // ignore
+    }
+  }
+
+  const user = await prisma.user.findFirst({
+    where: { email }
+  });
+
+  if (!user) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  const isVerified = Boolean(user.emailVerified || firebaseVerified);
+  if (firebaseVerified && !user.emailVerified) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { emailVerified: true }
+    });
+  }
+
+  return res.json({ verified: isVerified });
 });
 
 router.post('/post-reset', apiLimiter, async (req: Request, res: Response) => {

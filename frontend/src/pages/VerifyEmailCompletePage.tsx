@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { applyActionCode } from 'firebase/auth';
 import { auth } from '../auth/firebase.js';
+import { resolver } from '../api/multiServerResolver.js';
 import { Link } from 'react-router-dom';
 import { CheckCircle2, AlertCircle, RefreshCw, ArrowRight } from 'lucide-react';
 
@@ -9,36 +10,88 @@ export const VerifyEmailCompletePage: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string>('');
 
   useEffect(() => {
-    // Support standard search params and Capacitor HashRouter params
-    const rawSearch = window.location.search || (window.location.hash.includes('?') ? '?' + window.location.hash.split('?')[1] : '');
-    const params = new URLSearchParams(rawSearch);
-    const oobCode = params.get('oobCode');
-    const email = params.get('email');
-    const uid = params.get('uid');
+    let isMounted = true;
 
-    // 1. If Firebase action code is present, verify strictly via Firebase Web SDK
-    if (oobCode && !oobCode.startsWith('code-')) {
-      applyActionCode(auth, oobCode)
-        .then(() => {
-          setStatus('success');
-        })
-        .catch((err: any) => {
-          console.error('Firebase applyActionCode error:', err);
-          setStatus('error');
-          if (err.code === 'auth/invalid-action-code') {
-            setErrorMessage('This verification link is invalid or has already been used.');
-          } else if (err.code === 'auth/expired-action-code') {
-            setErrorMessage('This verification link has expired. Please request a new one.');
-          } else {
-            setErrorMessage(err.message || 'Verification failed. Please try requesting a new link.');
+    async function handleVerification() {
+      // Support standard search params and Capacitor HashRouter params
+      const rawSearch = window.location.search || (window.location.hash.includes('?') ? '?' + window.location.hash.split('?')[1] : '');
+      const params = new URLSearchParams(rawSearch);
+      const oobCode = params.get('oobCode');
+      const email = params.get('email');
+
+      // Helper to check if already verified in Firebase or backend
+      const checkAlreadyVerified = async (): Promise<boolean> => {
+        try {
+          if (auth.currentUser) {
+            await auth.currentUser.reload();
+            if (auth.currentUser.emailVerified) {
+              return true;
+            }
           }
-        });
-      return;
+          if (email) {
+            const res = await resolver.request<{ verified: boolean }>(`/api/auth/verification-status?email=${encodeURIComponent(email)}`);
+            if (res && res.verified) {
+              return true;
+            }
+          }
+        } catch {
+          // ignore check errors
+        }
+        return false;
+      };
+
+      // 1. If Firebase action code is present, verify via Firebase Web SDK
+      if (oobCode && !oobCode.startsWith('code-')) {
+        try {
+          await applyActionCode(auth, oobCode);
+          if (auth.currentUser) {
+            await auth.currentUser.reload();
+            const token = await auth.currentUser.getIdToken(true);
+            resolver.setToken(token);
+            await resolver.request('/api/auth').catch(() => {});
+          }
+          if (isMounted) setStatus('success');
+          return;
+        } catch (err: any) {
+          console.warn('Firebase applyActionCode error:', err.code, err.message);
+          // Check if failed because it's already verified / used
+          const alreadyVerified = await checkAlreadyVerified();
+          if (alreadyVerified && isMounted) {
+            setStatus('success');
+            return;
+          }
+          if (isMounted) {
+            setStatus('error');
+            if (err.code === 'auth/invalid-action-code') {
+              setErrorMessage('This verification link is invalid or has already been used.');
+            } else if (err.code === 'auth/expired-action-code') {
+              setErrorMessage('This verification link has expired. Please request a new one.');
+            } else {
+              setErrorMessage(err.message || 'Verification failed. Please try requesting a new link.');
+            }
+          }
+          return;
+        }
+      }
+
+      // 2. If no oobCode or fallback link, check if the account is already verified
+      const alreadyVerified = await checkAlreadyVerified();
+      if (alreadyVerified && isMounted) {
+        setStatus('success');
+        return;
+      }
+
+      if (isMounted) {
+        setStatus('error');
+        setErrorMessage('No valid verification action code was found in the link.');
+      }
     }
 
-    // Never trust client email/flag fallback: verification must come from Firebase action code
-    setStatus('error');
-    setErrorMessage('No valid verification action code was found in the link.');
+    handleVerification();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   return (
