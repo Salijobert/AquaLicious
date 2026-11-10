@@ -1,12 +1,16 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 
+export const INITIAL_LOAD = 40;
+export const CHUNK_SIZE = 40;
+export const SCROLL_LOAD_AHEAD_PX = 250;
+
 export interface UseVirtualScrollOptions {
   itemCount: number;
-  itemHeight: number;
-  containerRef: React.RefObject<HTMLElement | null>;
+  itemHeight?: number;
+  containerRef?: React.RefObject<HTMLElement | null>;
   overscan?: number;
-  velocityThreshold?: number; // px per ms (default: 0.6)
-  fastScrollCooldownMs?: number; // ms to keep skeleton after rapid scroll stops (default: 160)
+  velocityThreshold?: number;
+  fastScrollCooldownMs?: number;
 }
 
 export interface VirtualItem {
@@ -26,53 +30,84 @@ export interface UseVirtualScrollReturn {
   isScrolling: boolean;
   scrollTop: number;
   scrollToIndex: (index: number, behavior?: ScrollBehavior) => void;
+  visibleCount: number;
+  hasMore: boolean;
+  loadMore: () => void;
 }
 
 export function useVirtualScroll({
   itemCount,
-  itemHeight,
+  itemHeight = 52,
   containerRef,
-  overscan = 4,
   velocityThreshold = 0.6,
   fastScrollCooldownMs = 160
 }: UseVirtualScrollOptions): UseVirtualScrollReturn {
+  const [visibleCount, setVisibleCount] = useState<number>(() =>
+    itemCount <= INITIAL_LOAD ? itemCount : INITIAL_LOAD
+  );
   const [scrollTop, setScrollTop] = useState(0);
-  const [viewportHeight, setViewportHeight] = useState(400);
   const [isScrollingFast, setIsScrollingFast] = useState(false);
   const [isScrolling, setIsScrolling] = useState(false);
 
+  const prevItemCountRef = useRef(itemCount);
+  const isTriggeringRef = useRef(false);
   const lastScrollTop = useRef(0);
   const lastScrollTime = useRef(performance.now());
   const cooldownTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Total scrollable height
-  const totalSize = useMemo(() => itemCount * itemHeight, [itemCount, itemHeight]);
-
+  // If item count changes (e.g. search filter applied or data refreshed), reset or clamp
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    // Initial measurement
-    if (container.clientHeight > 0) {
-      setViewportHeight(container.clientHeight);
+    if (itemCount !== prevItemCountRef.current) {
+      prevItemCountRef.current = itemCount;
+      if (itemCount <= INITIAL_LOAD) {
+        setVisibleCount(itemCount);
+      } else {
+        setVisibleCount(INITIAL_LOAD);
+      }
     }
-    setScrollTop(container.scrollTop);
-    lastScrollTop.current = container.scrollTop;
-    lastScrollTime.current = performance.now();
+  }, [itemCount]);
+
+  const hasMore = visibleCount < itemCount;
+
+  const loadMore = useCallback(() => {
+    setVisibleCount((prev) => Math.min(itemCount, prev + CHUNK_SIZE));
+  }, [itemCount]);
+
+  // Handle scroll listeners ONLY when list has > 40 items AND hasMore is true
+  useEffect(() => {
+    // If list has 40 items or fewer, or all chunks are already loaded, DO NOT attach any listeners
+    if (itemCount <= INITIAL_LOAD || !hasMore) {
+      return;
+    }
+
+    const container = containerRef?.current;
+    const target: EventTarget = container || window;
 
     const handleScroll = () => {
       const now = performance.now();
-      const currentScrollTop = container.scrollTop;
+      let currentScrollTop = 0;
+      let scrollHeight = 0;
+      let clientHeight = 0;
+
+      if (container) {
+        currentScrollTop = container.scrollTop;
+        scrollHeight = container.scrollHeight;
+        clientHeight = container.clientHeight;
+      } else {
+        currentScrollTop = window.scrollY || document.documentElement.scrollTop;
+        scrollHeight = document.documentElement.scrollHeight;
+        clientHeight = window.innerHeight;
+      }
+
       const deltaY = Math.abs(currentScrollTop - lastScrollTop.current);
       const deltaTime = Math.max(1, now - lastScrollTime.current);
-      const velocity = deltaY / deltaTime; // px per ms
+      const velocity = deltaY / deltaTime;
 
       lastScrollTop.current = currentScrollTop;
       lastScrollTime.current = now;
       setScrollTop(currentScrollTop);
       setIsScrolling(true);
 
-      // Trigger fast scroll skeleton if velocity exceeds threshold or sudden large jump
       if (velocity > velocityThreshold || deltaY > itemHeight * 5) {
         setIsScrollingFast(true);
       }
@@ -84,93 +119,70 @@ export function useVirtualScroll({
         setIsScrollingFast(false);
         setIsScrolling(false);
       }, fastScrollCooldownMs);
+
+      // Check if user scrolled near the end of the loaded list (within 200-300px)
+      const distanceFromBottom = scrollHeight - (currentScrollTop + clientHeight);
+      if (distanceFromBottom <= SCROLL_LOAD_AHEAD_PX && !isTriggeringRef.current) {
+        isTriggeringRef.current = true;
+        setVisibleCount((prev) => Math.min(itemCount, prev + CHUNK_SIZE));
+        setTimeout(() => {
+          isTriggeringRef.current = false;
+        }, 100);
+      }
     };
 
-    container.addEventListener('scroll', handleScroll, { passive: true });
-
-    // Measure viewport resize
-    let resizeObserver: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== 'undefined') {
-      resizeObserver = new ResizeObserver((entries) => {
-        for (const entry of entries) {
-          if (entry.contentRect.height > 0) {
-            setViewportHeight(entry.contentRect.height);
-          }
-        }
-      });
-      resizeObserver.observe(container);
-    }
+    target.addEventListener('scroll', handleScroll, { passive: true });
 
     return () => {
-      container.removeEventListener('scroll', handleScroll);
-      if (resizeObserver) {
-        resizeObserver.disconnect();
-      }
+      target.removeEventListener('scroll', handleScroll);
       if (cooldownTimer.current) {
         clearTimeout(cooldownTimer.current);
       }
     };
-  }, [containerRef, itemHeight, velocityThreshold, fastScrollCooldownMs]);
+  }, [containerRef, itemCount, hasMore, itemHeight, velocityThreshold, fastScrollCooldownMs]);
 
-  // Calculate visible range with overscan
-  const { startIndex, endIndex, virtualItems, topPadding, bottomPadding } = useMemo(() => {
-    if (itemCount === 0) {
-      return {
-        startIndex: 0,
-        endIndex: 0,
-        virtualItems: [],
-        topPadding: 0,
-        bottomPadding: 0
-      };
-    }
-
-    const start = Math.max(0, Math.floor(scrollTop / itemHeight) - overscan);
-    const end = Math.min(
-      itemCount - 1,
-      Math.ceil((scrollTop + viewportHeight) / itemHeight) + overscan
-    );
-
+  // Compute virtual items for the visible count
+  const virtualItems: VirtualItem[] = useMemo(() => {
+    const count = Math.min(itemCount, visibleCount);
     const items: VirtualItem[] = [];
-    for (let i = start; i <= end; i++) {
+    for (let i = 0; i < count; i++) {
       items.push({
         index: i,
         start: i * itemHeight,
         size: itemHeight
       });
     }
+    return items;
+  }, [itemCount, visibleCount, itemHeight]);
 
-    const top = start * itemHeight;
-    const bottom = Math.max(0, (itemCount - 1 - end) * itemHeight);
-
-    return {
-      startIndex: start,
-      endIndex: end,
-      virtualItems: items,
-      topPadding: top,
-      bottomPadding: bottom
-    };
-  }, [scrollTop, viewportHeight, itemCount, itemHeight, overscan]);
+  const totalSize = useMemo(() => itemCount * itemHeight, [itemCount, itemHeight]);
 
   const scrollToIndex = useCallback(
     (index: number, behavior: ScrollBehavior = 'smooth') => {
-      const container = containerRef.current;
-      if (!container) return;
-      const targetTop = Math.max(0, Math.min(index * itemHeight, totalSize - viewportHeight));
-      container.scrollTo({ top: targetTop, behavior });
+      const container = containerRef?.current;
+      const targetTop = Math.max(0, index * itemHeight);
+      if (container) {
+        container.scrollTo({ top: targetTop, behavior });
+      } else {
+        window.scrollTo({ top: targetTop, behavior });
+      }
     },
-    [containerRef, itemHeight, totalSize, viewportHeight]
+    [containerRef, itemHeight]
   );
 
   return {
     virtualItems,
     totalSize,
-    topPadding,
-    bottomPadding,
-    startIndex,
-    endIndex,
+    topPadding: 0,
+    bottomPadding: 0,
+    startIndex: 0,
+    endIndex: Math.max(0, virtualItems.length - 1),
     isScrollingFast,
     isScrolling,
     scrollTop,
-    scrollToIndex
+    scrollToIndex,
+    visibleCount,
+    hasMore,
+    loadMore
   };
 }

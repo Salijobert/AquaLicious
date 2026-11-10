@@ -127,6 +127,7 @@ export class SalesService {
         data: {
           orderNumber,
           userId,
+          customerName: 'Walk-in customer',
           orderType: OrderType.WALK_IN_POS,
           subtotal: calculatedSubtotal,
           tax: 0,
@@ -135,7 +136,7 @@ export class SalesService {
           cashTendered: cash,
           changeDue,
           paymentMethod: PaymentMethod.CASH,
-          paymentStatus: PaymentStatus.VERIFIED,
+          paymentStatus: PaymentStatus.COMPLETED,
           orderStatus: OrderStatus.COMPLETED,
           requestKey: requestKey || null,
           items: {

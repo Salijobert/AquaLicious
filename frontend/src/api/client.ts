@@ -159,7 +159,7 @@ export function useCreateOrder() {
       items: Array<{ product_id: number; qty: number }>;
       fulfillment: 'PICKUP' | 'DELIVERY';
       address?: string;
-      method: 'CASH' | 'GCASH_QR' | 'MAYA_QR';
+      method: 'CASH' | 'E_WALLET';
       expected_total?: number | string;
       request_key: string;
     }) =>
@@ -185,6 +185,9 @@ export function usePatchOrder() {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
       queryClient.invalidateQueries({ queryKey: ['reports'] });
+    },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
     }
   });
 }

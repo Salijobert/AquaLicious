@@ -83,7 +83,7 @@ try {
   report(hasFastScroll === 'true' || hasFastScroll === 'false', 'Ledger tracks fast-scrolling state dynamically');
 
   // Wait for cooldown
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(500);
   const settledFastScroll = await ledgerTbody.getAttribute('data-fast-scrolling');
   report(settledFastScroll === 'false', 'Ledger settles back to normal row rendering after fast scroll stops');
 
@@ -94,15 +94,14 @@ try {
   await page.goto(`${baseUrl}/orders`);
   await page.waitForSelector('h1:has-text("Orders"), h1:has-text("My Orders")');
 
-  const ordersContainer = page.locator('div[class*="overflow-y-auto"] div[data-virtual-count]');
+  const ordersContainer = page.locator('div[data-virtual-count]').first();
   await ordersContainer.waitFor({ timeout: 5000 });
   report((await ordersContainer.count()) > 0, 'Orders window mounts VirtualCardList with data-virtual-count');
 
-  // Trigger fast scroll
-  const ordersScrollWrapper = page.locator('div[class*="overflow-y-auto"]:has(div[data-virtual-count])');
-  await ordersScrollWrapper.evaluate((el) => {
-    el.scrollTop = 500;
-    el.dispatchEvent(new Event('scroll'));
+  // Trigger fast scroll on window (since inner scrollbar was removed per user requirement #6)
+  await page.evaluate(() => {
+    window.scrollTo(0, 500);
+    window.dispatchEvent(new Event('scroll'));
   });
 
   await page.waitForTimeout(50);

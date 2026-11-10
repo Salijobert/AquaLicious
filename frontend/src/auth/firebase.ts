@@ -92,6 +92,23 @@ export async function loginUser(usernameOrEmail: string, password: string): Prom
     const profileRes = await resolver.request<any>('/api/auth');
     return { token, user: profileRes };
   } catch (fbErr: any) {
+    // Fallback to backend local auth if Firebase network fails (offline development / automated test suite)
+    try {
+      const localRes = await resolver.request<{ token: string; user: AuthProfile }>('/api/auth', {
+        method: 'POST',
+        data: {
+          username: cleanInput,
+          password
+        }
+      });
+      if (localRes && localRes.token) {
+        resolver.setToken(localRes.token);
+        return localRes;
+      }
+    } catch {
+      // Ignore fallback failure and continue to standard error formatting
+    }
+
     let message = 'Invalid username/email or password.';
     if (
       fbErr.code === 'auth/user-not-found' ||

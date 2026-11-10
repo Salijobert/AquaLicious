@@ -34,7 +34,7 @@ const parsedAdminUids = rawAdminUids
   .map(u => u.trim())
   .filter(Boolean);
 
-// In production, the server MUST refuse to start if test auth is enabled, if JWT_SECRET is missing or weak (< 32 characters), or if at least one ADMIN_FIREBASE_UID(S) is missing
+// In production, the server MUST refuse to start if JWT_SECRET is missing or weak (< 32 characters), or if at least one ADMIN_FIREBASE_UID(S) is missing
 if (isProduction) {
   if (!process.env.JWT_SECRET || process.env.JWT_SECRET.trim().length < 32) {
     throw new Error(

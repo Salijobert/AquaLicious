@@ -1,10 +1,25 @@
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
 import { OrderService } from '../services/orderService.js';
 import { authenticate, requireEmailVerified, requireConsent } from '../middleware/auth.js';
 import { idempotencyMiddleware } from '../middleware/idempotency.js';
 import { prisma } from '../config/index.js';
 
 const router = Router();
+
+const createOrderSchema = z.object({
+  items: z.array(z.object({
+    product_id: z.number().int().positive(),
+    qty: z.number().int().positive()
+  })).min(1, 'Cart items cannot be empty'),
+  fulfillment: z.enum(['PICKUP', 'DELIVERY']).optional().default('PICKUP'),
+  address: z.string().optional(),
+  method: z.enum(['CASH', 'E_WALLET'], {
+    errorMap: () => ({ message: 'Invalid payment method. Only Cash and E-Wallet are accepted.' })
+  }).optional().default('CASH'),
+  expected_total: z.union([z.number(), z.string()]).optional(),
+  request_key: z.string().optional()
+});
 
 router.get('/', authenticate, async (req: Request, res: Response) => {
   const { id, proof, raw, limit, email_logs } = req.query;
@@ -24,6 +39,9 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
       const proofData = await OrderService.getProof(Number(proof), req.user!);
       res.setHeader('X-Content-Type-Options', 'nosniff');
       if (raw === '1' || req.headers.accept?.startsWith('image/')) {
+        if (!proofData.proof_base64) {
+          return res.status(404).json({ error: 'No proof image uploaded' });
+        }
         const matches = proofData.proof_base64.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
         const mime = matches ? matches[1] : 'image/jpeg';
         const data = matches ? matches[2] : proofData.proof_base64;
@@ -46,15 +64,23 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
 });
 
 router.post('/', authenticate, requireEmailVerified, requireConsent, idempotencyMiddleware('create_order'), async (req: Request, res: Response) => {
-  const { items, fulfillment, address, method, expected_total, request_key } = req.body;
+  const parsed = createOrderSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(422).json({
+      error: parsed.error.errors[0]?.message || 'Validation failed',
+      errors: parsed.error.errors
+    });
+  }
+
+  const { items, fulfillment, address, method, expected_total, request_key } = parsed.data;
 
   try {
     const order = await OrderService.createOrder({
       userId: req.user!.id,
       items,
-      fulfillment: fulfillment || 'PICKUP',
+      fulfillment,
       address,
-      method: method || 'CASH',
+      method,
       expectedTotal: expected_total,
       requestKey: request_key
     });
@@ -103,7 +129,10 @@ router.patch('/', authenticate, async (req: Request, res: Response) => {
 
     return res.status(200).json(result);
   } catch (err: any) {
-    return res.status(err.status || 500).json({ error: err.message || 'Order action failed' });
+    return res.status(err.status || 500).json({
+      error: err.message || 'Order action failed',
+      code: err.code
+    });
   }
 });
 

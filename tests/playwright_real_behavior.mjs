@@ -495,7 +495,7 @@ try {
   const verifyPage = await verifyContext.newPage();
 
   // 1. BrowserRouter query preservation & invalid action code rejection
-  await verifyPage.goto(`${baseUrl}/verify-email-complete?mode=verifyEmail&oobCode=code-12345&email=${encodeURIComponent(verifiedEmail)}`);
+  await verifyPage.goto(`${baseUrl}/verify-email-complete?mode=verifyEmail&oobCode=code-12345&email=${encodeURIComponent(unverifiedEmail)}`);
   await verifyPage.waitForTimeout(1000);
   const verifyText = await verifyPage.innerText('body');
   report(
@@ -507,7 +507,7 @@ try {
   await verifyPage.addInitScript(() => {
     window.Capacitor = { isNativePlatform: () => true };
   });
-  await verifyPage.goto(`${baseUrl}/#/verify-email-complete?mode=verifyEmail&oobCode=code-12345&email=${encodeURIComponent(verifiedEmail)}`);
+  await verifyPage.goto(`${baseUrl}/#/verify-email-complete?mode=verifyEmail&oobCode=code-12345&email=${encodeURIComponent(unverifiedEmail)}`);
   await verifyPage.waitForTimeout(1000);
   const verifyHashText = await verifyPage.innerText('body');
   report(

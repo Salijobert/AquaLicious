@@ -27,6 +27,7 @@ enum OrderType {
 
 enum PaymentMethod {
   CASH
+  E_WALLET
   GCASH_QR
   MAYA_QR
 }
@@ -35,6 +36,7 @@ enum PaymentStatus {
   PENDING
   SUBMITTED
   VERIFIED
+  COMPLETED
   REJECTED
   REFUND_REQUIRED
   REFUNDED
@@ -136,6 +138,8 @@ model SalesOrder {
   userId           Int
   user             User             @relation(fields: [userId], references: [id])
   customerId       Int?
+  customerName     String?          @map("customer_name")
+  legacyPaymentMethod String?       @map("legacy_payment_method")
   orderType        OrderType        @default(WALK_IN_POS)
   deliveryAddress  String?
   subtotal         Decimal          @db.Decimal(10, 2)

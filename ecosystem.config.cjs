@@ -6,7 +6,7 @@ module.exports = {
       name: 'aqualicious-api',
       cwd: path.resolve(__dirname, 'backend'),
       script: path.resolve(__dirname, 'backend', 'dist', 'server.js'),
-      instances: 'max',
+      instances: 2,
       exec_mode: 'cluster',
       wait_ready: true,
       listen_timeout: 10000,

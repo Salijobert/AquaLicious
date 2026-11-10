@@ -125,7 +125,8 @@ export function getOrderReceiptTemplate(params: {
 }) {
   const safeName = escapeHtml(params.customerName);
   const safeOrderNo = escapeHtml(params.orderNumber);
-  const safeMethod = escapeHtml(params.paymentMethod);
+  const displayMethod = (params.paymentMethod === 'GCASH_QR' || params.paymentMethod === 'MAYA_QR' || params.paymentMethod === 'E_WALLET') ? 'E-Wallet' : 'Cash';
+  const safeMethod = escapeHtml(displayMethod);
   const safeFulfillment = escapeHtml(params.fulfillment);
   const safeAddress = escapeHtml(params.address || 'Pick up at Station');
   const dateFormatted = formatManilaTime(params.createdAt || new Date());
@@ -233,7 +234,7 @@ export function getAdminOrderAlertTemplate(params: {
       <li><strong>Order:</strong> #${safeOrder}</li>
       <li><strong>Customer:</strong> ${safeCustomer}</li>
       <li><strong>Amount:</strong> ₱${Number(params.total).toFixed(2)}</li>
-      <li><strong>Payment Method:</strong> ${escapeHtml(params.paymentMethod)}</li>
+      <li><strong>Payment Method:</strong> ${escapeHtml((params.paymentMethod === 'GCASH_QR' || params.paymentMethod === 'MAYA_QR' || params.paymentMethod === 'E_WALLET') ? 'E-Wallet' : 'Cash')}</li>
       <li><strong>Fulfillment:</strong> ${escapeHtml(params.fulfillment)}</li>
     </ul>
     <div style="text-align: center;">

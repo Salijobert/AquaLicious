@@ -53,7 +53,7 @@ export const App: React.FC = () => {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [fulfillment, setFulfillment] = useState<'PICKUP' | 'DELIVERY'>('PICKUP');
   const [address, setAddress] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'GCASH_QR' | 'MAYA_QR'>('CASH');
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'E_WALLET'>('CASH');
   const [showSplash, setShowSplash] = useState(true);
   const [isConsentModalOpen, setIsConsentModalOpen] = useState(false);
   const [isSubmittingConsent, setIsSubmittingConsent] = useState(false);
@@ -433,9 +433,8 @@ export const App: React.FC = () => {
                     onChange={(e: any) => setPaymentMethod(e.target.value)}
                     className="w-full text-xs p-2 rounded-lg border border-gray-300 bg-white focus:outline-none focus:border-[#1565c0]"
                   >
-                    <option value="CASH">Cash on Delivery / Pickup</option>
-                    <option value="GCASH_QR">GCash QR Payment</option>
-                    <option value="MAYA_QR">Maya QR Payment</option>
+                    <option value="CASH">Cash</option>
+                    <option value="E_WALLET">E-Wallet</option>
                   </select>
                 </div>
 

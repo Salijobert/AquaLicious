@@ -19,7 +19,13 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose }) 
           </div>
           <p className="text-xs text-slate-500 uppercase">Water Refilling Station & POS</p>
           <p className="text-xs text-slate-400 mt-1">Receipt #{receipt.order_number}</p>
-          <div className="mt-2 text-xs font-semibold text-slate-500">
+          <div className="mt-1 text-xs font-semibold text-slate-600">
+            Customer: {receipt.customer || receipt.user?.name || 'Walk-in customer'}
+          </div>
+          <div className="text-xs text-slate-500">
+            Mode of Payment: {(receipt.payment_method === 'CASH' || receipt.payment?.method === 'CASH') ? 'Cash' : 'E-Wallet'}
+          </div>
+          <div className="mt-1 text-xs font-semibold text-slate-500">
             {new Date(receipt.created_at || Date.now()).toLocaleString('en-PH', { timeZone: 'Asia/Manila' })}
           </div>
         </div>

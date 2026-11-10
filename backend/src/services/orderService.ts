@@ -4,6 +4,64 @@ import { sanitize } from '../middleware/security.js';
 import { Mailer } from './mailer.js';
 import crypto from 'crypto';
 
+export function computeAllowedOrderActions(order: {
+  orderStatus: OrderStatus | string;
+  paymentMethod: PaymentMethod | string;
+  paymentStatus: PaymentStatus | string;
+  orderType: OrderType | string;
+}): string[] {
+  const isCompleted = order.orderStatus === OrderStatus.COMPLETED || order.orderStatus === 'COMPLETED';
+  const isCancelled = order.orderStatus === OrderStatus.CANCELLED || order.orderStatus === 'CANCELLED';
+  if (isCompleted || isCancelled) {
+    return [];
+  }
+
+  const isEWallet =
+    order.paymentMethod === PaymentMethod.E_WALLET ||
+    order.paymentMethod === 'E_WALLET' ||
+    order.paymentMethod === PaymentMethod.GCASH_QR ||
+    order.paymentMethod === 'GCASH_QR' ||
+    order.paymentMethod === PaymentMethod.MAYA_QR ||
+    order.paymentMethod === 'MAYA_QR';
+
+  const isVerified =
+    order.paymentStatus === PaymentStatus.VERIFIED ||
+    order.paymentStatus === 'VERIFIED' ||
+    order.paymentStatus === PaymentStatus.COMPLETED ||
+    order.paymentStatus === 'COMPLETED';
+
+  // If E-Wallet and payment is not verified, no fulfillment actions allowed
+  if (isEWallet && !isVerified) {
+    return ['CANCEL'];
+  }
+
+  const isPickup = order.orderType === OrderType.PICKUP || order.orderType === 'PICKUP';
+  const isDelivery = order.orderType === OrderType.DELIVERY || order.orderType === 'DELIVERY';
+
+  switch (order.orderStatus) {
+    case OrderStatus.PENDING:
+    case 'PENDING':
+      return [
+        'PREPARE',
+        isPickup ? 'READY_FOR_PICKUP' : 'OUT_FOR_DELIVERY',
+        'CANCEL'
+      ];
+    case OrderStatus.PREPARING:
+    case 'PREPARING':
+      return [
+        isDelivery ? 'OUT_FOR_DELIVERY' : 'READY_FOR_PICKUP',
+        'CANCEL'
+      ];
+    case OrderStatus.READY_FOR_PICKUP:
+    case 'READY_FOR_PICKUP':
+    case OrderStatus.OUT_FOR_DELIVERY:
+    case 'OUT_FOR_DELIVERY':
+      return ['COMPLETED', 'CANCEL'];
+    default:
+      return [];
+  }
+}
+
 export class OrderService {
   /**
    * Places a customer order and immediately reserves stock under row locks.
@@ -13,11 +71,15 @@ export class OrderService {
     items: Array<{ product_id: number; qty: number }>;
     fulfillment: 'PICKUP' | 'DELIVERY';
     address?: string;
-    method: 'CASH' | 'GCASH_QR' | 'MAYA_QR';
+    method: 'CASH' | 'E_WALLET' | string;
     expectedTotal?: number | string;
     requestKey?: string;
   }) {
     const { userId, items, fulfillment, address, method, expectedTotal, requestKey } = params;
+
+    if (method !== 'CASH' && method !== 'E_WALLET') {
+      throw { status: 422, message: 'Invalid payment method. Only Cash and E-Wallet are accepted.' };
+    }
 
     if (!items || items.length === 0) {
       throw { status: 422, message: 'Cart items cannot be empty' };
@@ -101,8 +163,14 @@ export class OrderService {
         }
       }
 
+      const customerRecord = await tx.user.findUnique({
+        where: { id: userId },
+        select: { name: true, email: true }
+      });
+      const customerName = sanitize(customerRecord?.name || 'Customer');
+
       const orderNumber = `ORD-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
-      const pMethod = method === 'GCASH_QR' ? PaymentMethod.GCASH_QR : method === 'MAYA_QR' ? PaymentMethod.MAYA_QR : PaymentMethod.CASH;
+      const pMethod = method === 'E_WALLET' ? PaymentMethod.E_WALLET : PaymentMethod.CASH;
       const oType = fulfillment === 'DELIVERY' ? OrderType.DELIVERY : OrderType.PICKUP;
 
       // 4. Create Order with status PENDING
@@ -111,6 +179,7 @@ export class OrderService {
           orderNumber,
           userId,
           customerId: userId,
+          customerName,
           orderType: oType,
           deliveryAddress: address ? sanitize(address) : null,
           subtotal: calculatedSubtotal,
@@ -166,9 +235,15 @@ export class OrderService {
       return {
         id: order.id,
         order_number: order.orderNumber,
+        customer: customerName,
+        user: { name: customerName },
         total: Number(order.totalAmount).toFixed(2),
         payment_method: order.paymentMethod,
         payment_status: order.paymentStatus,
+        payment: {
+          method: order.paymentMethod,
+          status: order.paymentStatus
+        },
         status: order.orderStatus,
         fulfillment: order.orderType,
         created_at: order.createdAt.toISOString()
@@ -188,7 +263,7 @@ export class OrderService {
             orderId: createdOrder.id,
             orderNumber: createdOrder.order_number,
             customerEmail: customer.email,
-            customerName: customer.name || 'Customer',
+            customerName: createdOrder.customer || customer.name || 'Customer',
             items: receiptLines,
             total: createdOrder.total,
             paymentMethod: createdOrder.payment_method,
@@ -203,7 +278,7 @@ export class OrderService {
         await Mailer.sendAdminOrderAlert({
           orderId: createdOrder.id,
           orderNumber: createdOrder.order_number,
-          customerName: customer?.name || 'Customer',
+          customerName: createdOrder.customer || customer?.name || 'Customer',
           total: createdOrder.total,
           paymentMethod: createdOrder.payment_method,
           fulfillment: createdOrder.fulfillment,
@@ -233,28 +308,49 @@ export class OrderService {
       }
     });
 
-    return orders.map(o => ({
-      id: o.id,
-      order_number: o.orderNumber,
-      customer: o.user.name,
-      total: Number(o.totalAmount).toFixed(2),
-      payment_method: o.paymentMethod,
-      payment_status: o.paymentStatus,
-      reference_number: o.paymentReference,
-      has_proof: !!o.proofBase64,
-      status: o.orderStatus,
-      fulfillment: o.orderType,
-      address: o.deliveryAddress,
-      created_at: o.createdAt.toISOString(),
-      items: o.items.map(i => ({
-        product_id: i.productId,
-        product_name: i.product.name,
-        sku: i.product.sku,
-        qty: i.quantity,
-        unit_price: Number(i.unitPrice).toFixed(2),
-        subtotal: Number(i.subtotal).toFixed(2)
-      }))
-    }));
+    return orders.map(o => {
+      const customerName = o.customerName || (o.orderType === OrderType.WALK_IN_POS ? 'Walk-in customer' : (o.user?.name || 'Walk-in customer'));
+      const paymentMethod = (o.paymentMethod === 'GCASH_QR' || o.paymentMethod === 'MAYA_QR' || o.paymentMethod === 'E_WALLET') ? 'E_WALLET' : 'CASH';
+
+      return {
+        id: o.id,
+        order_number: o.orderNumber,
+        customer: customerName,
+        user: {
+          name: customerName,
+          username: o.user?.username
+        },
+        total: Number(o.totalAmount).toFixed(2),
+        payment_method: paymentMethod,
+        payment_status: o.paymentStatus,
+        payment: {
+          method: paymentMethod,
+          status: o.paymentStatus,
+          reference_number: o.paymentReference
+        },
+        reference_number: o.paymentReference,
+        has_proof: !!o.proofBase64,
+        status: o.orderStatus,
+        fulfillment: o.orderType,
+        allowed_actions: computeAllowedOrderActions({
+          orderStatus: o.orderStatus,
+          paymentMethod: o.paymentMethod,
+          paymentStatus: o.paymentStatus,
+          orderType: o.orderType
+        }),
+        address: o.deliveryAddress,
+        notes: o.notes,
+        created_at: o.createdAt.toISOString(),
+        items: o.items.map(i => ({
+          product_id: i.productId,
+          product_name: i.product.name,
+          sku: i.product.sku,
+          qty: i.quantity,
+          unit_price: Number(i.unitPrice).toFixed(2),
+          subtotal: Number(i.subtotal).toFixed(2)
+        }))
+      };
+    });
   }
 
   static async getOrder(id: number, user: { id: number; role: Role }) {
@@ -276,17 +372,35 @@ export class OrderService {
       throw { status: 404, message: 'Order not found' };
     }
 
+    const customerName = order.customerName || (order.orderType === OrderType.WALK_IN_POS ? 'Walk-in customer' : (order.user?.name || 'Walk-in customer'));
+    const paymentMethod = (order.paymentMethod === 'GCASH_QR' || order.paymentMethod === 'MAYA_QR' || order.paymentMethod === 'E_WALLET') ? 'E_WALLET' : 'CASH';
+
     return {
       id: order.id,
       order_number: order.orderNumber,
-      customer: order.user.name,
+      customer: customerName,
+      user: {
+        name: customerName,
+        username: order.user?.username
+      },
       total: Number(order.totalAmount).toFixed(2),
-      payment_method: order.paymentMethod,
+      payment_method: paymentMethod,
       payment_status: order.paymentStatus,
+      payment: {
+        method: paymentMethod,
+        status: order.paymentStatus,
+        reference_number: order.paymentReference
+      },
       reference_number: order.paymentReference,
       has_proof: !!order.proofBase64,
       status: order.orderStatus,
       fulfillment: order.orderType,
+      allowed_actions: computeAllowedOrderActions({
+        orderStatus: order.orderStatus,
+        paymentMethod: order.paymentMethod,
+        paymentStatus: order.paymentStatus,
+        orderType: order.orderType
+      }),
       address: order.deliveryAddress,
       notes: order.notes,
       created_at: order.createdAt.toISOString(),
@@ -303,10 +417,13 @@ export class OrderService {
 
   static async getProof(id: number, user: { id: number; role: Role }) {
     const order = await prisma.salesOrder.findUnique({
-      where: { id }
+      where: { id },
+      include: {
+        user: { select: { name: true, username: true } }
+      }
     });
 
-    if (!order || !order.proofBase64) {
+    if (!order) {
       throw { status: 404, message: 'Proof not found' };
     }
 
@@ -315,11 +432,49 @@ export class OrderService {
       throw { status: 404, message: 'Proof not found' };
     }
 
+    // Look up verification audit log if verified or completed
+    let verifiedBy: string | null = null;
+    let verifiedAt: string | null = null;
+    if (order.paymentStatus === PaymentStatus.VERIFIED || order.paymentStatus === PaymentStatus.COMPLETED) {
+      const verifyLog = await prisma.auditLog.findFirst({
+        where: {
+          entity: 'SalesOrder',
+          entityId: order.id,
+          action: 'PAYMENT_STATUS_VERIFIED'
+        },
+        orderBy: { id: 'desc' }
+      });
+      if (verifyLog) {
+        verifiedAt = verifyLog.createdAt.toISOString();
+        if (verifyLog.userId) {
+          const verifier = await prisma.user.findUnique({
+            where: { id: verifyLog.userId },
+            select: { name: true }
+          });
+          verifiedBy = verifier?.name || 'Administrator';
+        } else {
+          verifiedBy = 'Administrator';
+        }
+      }
+    }
+
+    const customerName = order.customerName || (order.orderType === OrderType.WALK_IN_POS ? 'Walk-in customer' : (order.user?.name || 'Walk-in customer'));
+    const paymentMethod = (order.paymentMethod === 'GCASH_QR' || order.paymentMethod === 'MAYA_QR' || order.paymentMethod === 'E_WALLET') ? 'E_WALLET' : 'CASH';
+
     return {
       id: order.id,
       order_number: order.orderNumber,
-      reference_number: order.paymentReference,
-      proof_base64: order.proofBase64
+      customer_name: customerName,
+      reference_number: order.paymentReference || null,
+      proof_base64: order.proofBase64 || null,
+      has_proof: !!order.proofBase64,
+      amount: Number(order.totalAmount).toFixed(2),
+      payment_method: paymentMethod,
+      payment_status: order.paymentStatus,
+      submitted_at: order.createdAt.toISOString(),
+      created_at: order.createdAt.toISOString(),
+      verified_by: verifiedBy,
+      verified_at: verifiedAt
     };
   }
 
@@ -347,14 +502,14 @@ export class OrderService {
 
     switch (action) {
       case 'claim': {
-        // Customer claims payment on own pending QR order
+        // Customer claims payment on own pending or rejected E-Wallet order
         if (user.role === Role.CUSTOMER && order.userId !== user.id) {
           throw { status: 404, message: 'Order not found' };
         }
 
         const { reference_number, proof_base64, filename, file_name } = body;
-        if (!reference_number || !proof_base64 || typeof proof_base64 !== 'string') {
-          throw { status: 422, message: 'Reference number and proof image required' };
+        if (!proof_base64 || typeof proof_base64 !== 'string') {
+          throw { status: 422, message: 'Proof image required' };
         }
 
         // 1. Double extension and suspicious filename check
@@ -415,10 +570,14 @@ export class OrderService {
         const safeMime = isJpeg ? 'image/jpeg' : 'image/png';
         const normalizedProof = `data:${safeMime};base64,${rawBase64}`;
 
+        const refNum = (reference_number && typeof reference_number === 'string' && reference_number.trim())
+          ? sanitize(reference_number.trim())
+          : `EWALLET-${order.orderNumber}`;
+
         // Check reference uniqueness across claims
         const refConflict = await prisma.salesOrder.findFirst({
           where: {
-            paymentReference: reference_number,
+            paymentReference: refNum,
             id: { not: id }
           }
         });
@@ -427,13 +586,32 @@ export class OrderService {
           throw { status: 409, message: 'Reference cannot be claimed by a second order' };
         }
 
-        const updated = await prisma.salesOrder.update({
-          where: { id },
-          data: {
-            paymentReference: sanitize(reference_number),
-            proofBase64: normalizedProof,
-            paymentStatus: PaymentStatus.SUBMITTED
-          }
+        const updated = await prisma.$transaction(async (tx) => {
+          const u = await tx.salesOrder.update({
+            where: { id },
+            data: {
+              paymentReference: refNum,
+              proofBase64: normalizedProof,
+              paymentStatus: PaymentStatus.SUBMITTED
+            }
+          });
+
+          await tx.auditLog.create({
+            data: {
+              userId: user.id,
+              action: 'PAYMENT_STATUS_SUBMITTED',
+              entity: 'SalesOrder',
+              entityId: id,
+              details: JSON.stringify({
+                orderNumber: order.orderNumber,
+                referenceNumber: refNum,
+                previousPaymentStatus: order.paymentStatus,
+                newPaymentStatus: 'SUBMITTED'
+              })
+            }
+          });
+
+          return u;
         });
 
         // Outside transaction: notify admin of payment claim
@@ -442,7 +620,7 @@ export class OrderService {
             await Mailer.sendAdminOrderAlert({
               orderId: updated.id,
               orderNumber: order.orderNumber,
-              customerName: order.user?.name || 'Customer',
+              customerName: order.customerName || order.user?.name || 'Customer',
               total: Number(order.totalAmount).toFixed(2),
               paymentMethod: order.paymentMethod,
               fulfillment: order.orderType,
@@ -466,12 +644,32 @@ export class OrderService {
           throw { status: 403, message: 'Only Administrator can verify payment claims' };
         }
 
-        const updated = await prisma.salesOrder.update({
-          where: { id },
-          data: {
-            paymentStatus: PaymentStatus.VERIFIED,
-            notes: sanitize(body.notes) || 'Payment verified against merchant wallet'
-          }
+        const notes = sanitize(body.notes) || 'Payment verified against merchant wallet';
+        const updated = await prisma.$transaction(async (tx) => {
+          const u = await tx.salesOrder.update({
+            where: { id },
+            data: {
+              paymentStatus: PaymentStatus.VERIFIED,
+              notes
+            }
+          });
+
+          await tx.auditLog.create({
+            data: {
+              userId: user.id,
+              action: 'PAYMENT_STATUS_VERIFIED',
+              entity: 'SalesOrder',
+              entityId: id,
+              details: JSON.stringify({
+                orderNumber: order.orderNumber,
+                previousPaymentStatus: order.paymentStatus,
+                newPaymentStatus: 'VERIFIED',
+                notes
+              })
+            }
+          });
+
+          return u;
         });
 
         // Notify customer that payment was verified
@@ -482,7 +680,7 @@ export class OrderService {
                 orderId: updated.id,
                 orderNumber: order.orderNumber,
                 customerEmail: order.user.email,
-                customerName: order.user.name || 'Customer',
+                customerName: order.customerName || order.user.name || 'Customer',
                 status: 'PAYMENT VERIFIED',
                 notes: updated.notes,
                 userId: order.userId
@@ -506,12 +704,36 @@ export class OrderService {
           throw { status: 403, message: 'Only Administrator can reject payment claims' };
         }
 
-        const updated = await prisma.salesOrder.update({
-          where: { id },
-          data: {
-            paymentStatus: PaymentStatus.REJECTED,
-            notes: sanitize(body.notes) || 'Payment reference mismatch'
-          }
+        const reason = sanitize(body.notes || body.reason || '');
+        if (!reason) {
+          throw { status: 422, message: 'Rejection reason is required' };
+        }
+
+        const updated = await prisma.$transaction(async (tx) => {
+          const u = await tx.salesOrder.update({
+            where: { id },
+            data: {
+              paymentStatus: PaymentStatus.REJECTED,
+              notes: reason
+            }
+          });
+
+          await tx.auditLog.create({
+            data: {
+              userId: user.id,
+              action: 'PAYMENT_STATUS_REJECTED',
+              entity: 'SalesOrder',
+              entityId: id,
+              details: JSON.stringify({
+                orderNumber: order.orderNumber,
+                previousPaymentStatus: order.paymentStatus,
+                newPaymentStatus: 'REJECTED',
+                reason
+              })
+            }
+          });
+
+          return u;
         });
 
         // Notify customer that payment was rejected with admin's reason
@@ -522,7 +744,7 @@ export class OrderService {
                 orderId: updated.id,
                 orderNumber: order.orderNumber,
                 customerEmail: order.user.email,
-                customerName: order.user.name || 'Customer',
+                customerName: order.customerName || order.user.name || 'Customer',
                 status: 'PAYMENT REJECTED',
                 notes: updated.notes,
                 userId: order.userId
@@ -553,18 +775,30 @@ export class OrderService {
           }
         }
 
-        // Unverified QR orders cannot enter fulfillment
+        // Unverified E-Wallet/QR orders cannot enter fulfillment or completion
         const enteringFulfillment: OrderStatus[] = [
           OrderStatus.CONFIRMED,
           OrderStatus.PREPARING,
           OrderStatus.READY_FOR_PICKUP,
-          OrderStatus.OUT_FOR_DELIVERY
+          OrderStatus.OUT_FOR_DELIVERY,
+          OrderStatus.COMPLETED
         ];
 
-        if (enteringFulfillment.includes(newStatus) &&
-          (order.paymentMethod === PaymentMethod.GCASH_QR || order.paymentMethod === PaymentMethod.MAYA_QR) &&
-          order.paymentStatus !== PaymentStatus.VERIFIED) {
-          throw { status: 409, message: 'Unverified QR cannot enter fulfillment' };
+        const isEWallet =
+          order.paymentMethod === PaymentMethod.E_WALLET ||
+          order.paymentMethod === PaymentMethod.GCASH_QR ||
+          order.paymentMethod === PaymentMethod.MAYA_QR;
+
+        if (enteringFulfillment.includes(newStatus) && isEWallet) {
+          if (newStatus === OrderStatus.COMPLETED && order.orderStatus === OrderStatus.COMPLETED) {
+            // Idempotent retry allowed
+          } else if (order.paymentStatus !== PaymentStatus.VERIFIED && order.paymentStatus !== PaymentStatus.COMPLETED) {
+            throw {
+              status: 409,
+              message: 'Unverified QR cannot enter fulfillment',
+              code: 'PAYMENT_NOT_VERIFIED'
+            };
+          }
         }
 
         // Cancellation handling
@@ -574,13 +808,30 @@ export class OrderService {
           }
 
           const cancelResult = await prisma.$transaction(async (tx) => {
-            const refundRequired = order.paymentStatus === PaymentStatus.VERIFIED;
+            const refundRequired = order.paymentStatus === PaymentStatus.VERIFIED || order.paymentStatus === PaymentStatus.COMPLETED;
+            const targetPaymentStatus = refundRequired ? PaymentStatus.REFUND_REQUIRED : order.paymentStatus;
+
             const updated = await tx.salesOrder.update({
               where: { id },
               data: {
                 orderStatus: OrderStatus.CANCELLED,
-                paymentStatus: refundRequired ? PaymentStatus.REFUND_REQUIRED : order.paymentStatus,
+                paymentStatus: targetPaymentStatus,
                 notes: sanitize(body.notes) || 'Cancelled'
+              }
+            });
+
+            await tx.auditLog.create({
+              data: {
+                userId: user.id,
+                action: targetPaymentStatus === PaymentStatus.REFUND_REQUIRED ? 'PAYMENT_STATUS_REFUND_REQUIRED' : 'ORDER_CANCELLED',
+                entity: 'SalesOrder',
+                entityId: id,
+                details: JSON.stringify({
+                  orderNumber: order.orderNumber,
+                  previousPaymentStatus: order.paymentStatus,
+                  newPaymentStatus: targetPaymentStatus,
+                  notes: updated.notes
+                })
               }
             });
 
@@ -626,7 +877,7 @@ export class OrderService {
                   orderId: id,
                   orderNumber: order.orderNumber,
                   customerEmail: order.user.email,
-                  customerName: order.user.name || 'Customer',
+                  customerName: order.customerName || order.user.name || 'Customer',
                   status: 'CANCELLED',
                   notes: sanitize(body.notes) || 'Order Cancelled',
                   userId: order.userId
@@ -642,17 +893,50 @@ export class OrderService {
 
         // Completion handling
         if (newStatus === OrderStatus.COMPLETED) {
+          // Idempotent retry: if already completed, do nothing and return safely
+          if (order.orderStatus === OrderStatus.COMPLETED) {
+            return {
+              id: order.id,
+              status: order.orderStatus,
+              payment_status: order.paymentStatus
+            };
+          }
+
           if (order.paymentMethod === PaymentMethod.CASH && !body.cash_received) {
             throw { status: 422, message: 'CASH completion requires cash_received: true' };
           }
 
-          const updated = await prisma.salesOrder.update({
-            where: { id },
-            data: {
-              orderStatus: OrderStatus.COMPLETED,
-              paymentStatus: PaymentStatus.VERIFIED,
-              notes: sanitize(body.notes) || 'Order Completed'
-            }
+          const completedResult = await prisma.$transaction(async (tx) => {
+            const updated = await tx.salesOrder.update({
+              where: { id },
+              data: {
+                orderStatus: OrderStatus.COMPLETED,
+                paymentStatus: PaymentStatus.COMPLETED,
+                notes: sanitize(body.notes) || 'Order Completed'
+              }
+            });
+
+            await tx.auditLog.create({
+              data: {
+                userId: user.id,
+                action: 'PAYMENT_STATUS_COMPLETED',
+                entity: 'SalesOrder',
+                entityId: id,
+                details: JSON.stringify({
+                  orderNumber: order.orderNumber,
+                  previousPaymentStatus: order.paymentStatus,
+                  newPaymentStatus: 'COMPLETED',
+                  paymentMethod: order.paymentMethod,
+                  notes: updated.notes
+                })
+              }
+            });
+
+            return {
+              id: updated.id,
+              status: updated.orderStatus,
+              payment_status: updated.paymentStatus
+            };
           });
 
           // Notify customer of order completion
@@ -660,12 +944,12 @@ export class OrderService {
             try {
               if (order.user?.email) {
                 await Mailer.sendOrderStatusUpdate({
-                  orderId: updated.id,
+                  orderId: completedResult.id,
                   orderNumber: order.orderNumber,
                   customerEmail: order.user.email,
-                  customerName: order.user.name || 'Customer',
+                  customerName: order.customerName || order.user.name || 'Customer',
                   status: 'COMPLETED',
-                  notes: updated.notes,
+                  notes: sanitize(body.notes) || 'Order Completed',
                   userId: order.userId
                 });
               }
@@ -675,14 +959,10 @@ export class OrderService {
           })();
 
           // Stock was already reserved at order placement, DO NOT deduct again
-          return {
-            id: updated.id,
-            status: updated.orderStatus,
-            payment_status: updated.paymentStatus
-          };
+          return completedResult;
         }
 
-        // Advance to CONFIRMED or OUT_FOR_DELIVERY
+        // Advance to CONFIRMED, PREPARING, READY_FOR_PICKUP, or OUT_FOR_DELIVERY
         const updated = await prisma.salesOrder.update({
           where: { id },
           data: {
@@ -707,7 +987,7 @@ export class OrderService {
                 orderId: updated.id,
                 orderNumber: order.orderNumber,
                 customerEmail: order.user.email,
-                customerName: order.user.name || 'Customer',
+                customerName: order.customerName || order.user.name || 'Customer',
                 status: friendlyStatus,
                 notes: updated.notes,
                 userId: order.userId
@@ -731,12 +1011,32 @@ export class OrderService {
           throw { status: 403, message: 'Only Administrator can record refunds' };
         }
 
-        const updated = await prisma.salesOrder.update({
-          where: { id },
-          data: {
-            paymentStatus: PaymentStatus.REFUNDED,
-            notes: sanitize(body.notes) || 'Refund completed in merchant wallet'
-          }
+        const notes = sanitize(body.notes) || 'Refund completed in merchant wallet';
+        const updated = await prisma.$transaction(async (tx) => {
+          const u = await tx.salesOrder.update({
+            where: { id },
+            data: {
+              paymentStatus: PaymentStatus.REFUNDED,
+              notes
+            }
+          });
+
+          await tx.auditLog.create({
+            data: {
+              userId: user.id,
+              action: 'PAYMENT_STATUS_REFUNDED',
+              entity: 'SalesOrder',
+              entityId: id,
+              details: JSON.stringify({
+                orderNumber: order.orderNumber,
+                previousPaymentStatus: order.paymentStatus,
+                newPaymentStatus: 'REFUNDED',
+                notes
+              })
+            }
+          });
+
+          return u;
         });
 
         return {
