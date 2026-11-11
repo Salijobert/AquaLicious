@@ -7,6 +7,7 @@ import { Mailer } from '../services/mailer.js';
 import admin from 'firebase-admin';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
+import { assertAllowedName } from '../utils/nameFilter.js';
 
 const router = Router();
 
@@ -128,6 +129,14 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     const validData = parseResult.data;
+
+    try {
+      assertAllowedName(validData.name);
+      assertAllowedName(validData.username);
+    } catch (filterErr: any) {
+      return res.status(filterErr.status || 422).json({ error: filterErr.message || 'Please choose a different name.' });
+    }
+
     const cleanUsername = sanitize(validData.username).trim();
     const cleanEmail = sanitize(validData.email).trim().toLowerCase();
 

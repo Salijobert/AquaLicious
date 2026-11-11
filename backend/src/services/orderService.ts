@@ -419,7 +419,8 @@ export class OrderService {
     const order = await prisma.salesOrder.findUnique({
       where: { id },
       include: {
-        user: { select: { name: true, username: true } }
+        user: { select: { name: true, username: true } },
+        verifiedBy: { select: { name: true } }
       }
     });
 
@@ -432,10 +433,12 @@ export class OrderService {
       throw { status: 404, message: 'Proof not found' };
     }
 
-    // Look up verification audit log if verified or completed
-    let verifiedBy: string | null = null;
-    let verifiedAt: string | null = null;
-    if (order.paymentStatus === PaymentStatus.VERIFIED || order.paymentStatus === PaymentStatus.COMPLETED) {
+    // Read verification directly from payment/order record
+    let verifiedBy: string | null = order.verifiedBy?.name || null;
+    let verifiedAt: string | null = order.verifiedAt ? order.verifiedAt.toISOString() : null;
+
+    // Fallback to audit log for legacy orders if not populated on order record
+    if (!verifiedBy && (order.paymentStatus === PaymentStatus.VERIFIED || order.paymentStatus === PaymentStatus.COMPLETED)) {
       const verifyLog = await prisma.auditLog.findFirst({
         where: {
           entity: 'SalesOrder',
@@ -645,11 +648,14 @@ export class OrderService {
         }
 
         const notes = sanitize(body.notes) || 'Payment verified against merchant wallet';
+        const verifyTime = new Date();
         const updated = await prisma.$transaction(async (tx) => {
           const u = await tx.salesOrder.update({
             where: { id },
             data: {
               paymentStatus: PaymentStatus.VERIFIED,
+              verifiedById: user.id,
+              verifiedAt: verifyTime,
               notes
             }
           });
@@ -664,6 +670,7 @@ export class OrderService {
                 orderNumber: order.orderNumber,
                 previousPaymentStatus: order.paymentStatus,
                 newPaymentStatus: 'VERIFIED',
+                verifiedById: user.id,
                 notes
               })
             }
@@ -704,7 +711,8 @@ export class OrderService {
           throw { status: 403, message: 'Only Administrator can reject payment claims' };
         }
 
-        const reason = sanitize(body.notes || body.reason || '');
+        const rawReason = String(body.notes || body.reason || '').trim().slice(0, 500);
+        const reason = sanitize(rawReason);
         if (!reason) {
           throw { status: 422, message: 'Rejection reason is required' };
         }

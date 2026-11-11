@@ -77,7 +77,8 @@ model User {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
-  salesOrders     SalesOrder[]
+  salesOrders     SalesOrder[]     @relation("OrderUser")
+  verifiedOrders  SalesOrder[]     @relation("OrderVerifiedBy")
   stockMovements  StockMovement[]
   idempotencyLogs IdempotencyLog[]
   consents        UserConsent[]
@@ -136,7 +137,7 @@ model SalesOrder {
   id               Int              @id @default(autoincrement())
   orderNumber      String           @unique
   userId           Int
-  user             User             @relation(fields: [userId], references: [id])
+  user             User             @relation("OrderUser", fields: [userId], references: [id])
   customerId       Int?
   customerName     String?          @map("customer_name")
   legacyPaymentMethod String?       @map("legacy_payment_method")
@@ -152,6 +153,9 @@ model SalesOrder {
   paymentStatus    PaymentStatus    @default(PENDING)
   paymentReference String?
   proofBase64      String?          @db.Text
+  verifiedById     Int?             @map("verified_by_id")
+  verifiedBy       User?            @relation("OrderVerifiedBy", fields: [verifiedById], references: [id])
+  verifiedAt       DateTime?        @map("verified_at")
   orderStatus      OrderStatus      @default(COMPLETED)
   requestKey       String?          @unique
   voidReason       String?

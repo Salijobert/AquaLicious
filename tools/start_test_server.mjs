@@ -25,7 +25,7 @@ if (fs.existsSync(testEnvPath)) {
 
 process.env.PORT = '8090';
 process.env.DATABASE_URL = 'postgresql://postgres:postgres@localhost:5432/aqualicious_test?schema=public';
-process.env.NODE_ENV = 'development';
+process.env.NODE_ENV = 'test';
 process.env.ALLOW_LOCAL_AUTH_FALLBACK = 'true';
 
 const { createApp } = await import('../backend/dist/server.js');

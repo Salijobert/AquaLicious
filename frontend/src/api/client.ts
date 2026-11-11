@@ -228,6 +228,18 @@ export function useUpdateUser() {
   });
 }
 
+export function useDeleteUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      resolver.request<{ success: boolean; action: string; message: string }>('/api/users', {
+        method: 'DELETE',
+        data: { id }
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] })
+  });
+}
+
 // Config
 export function useConfig() {
   return useQuery({

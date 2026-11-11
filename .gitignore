@@ -28,4 +28,9 @@ tools/reconcile-*.json
 reconcile-users-report-*.json
 audit-users-report*.json
 
+tools/keys/*.pem
+tools/keys/*.key
+tools/keys/*.private
+.temp_ota/
+
 .vercel

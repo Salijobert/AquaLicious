@@ -16,7 +16,8 @@ import { RequireAuth, RequireRole, PageLoadingSpinner } from './components/Route
 import { useCreateOrder } from './api/client.js';
 import { resolver } from './api/multiServerResolver.js';
 import { TermsPrivacyModal } from './components/TermsPrivacyModal.js';
-import { ShoppingCart, X, Plus, Minus, Droplet, AlertTriangle } from 'lucide-react';
+import { ShoppingCart, X, Plus, Minus, Droplet, AlertTriangle, Sparkles, RefreshCw } from 'lucide-react';
+import { initAppUpdater, restartApp } from './services/updater.js';
 
 // Code-split admin pages with React.lazy
 const DashboardPage = lazy(() => import('./pages/DashboardPage.js').then((m) => ({ default: m.DashboardPage })));
@@ -57,6 +58,27 @@ export const App: React.FC = () => {
   const [showSplash, setShowSplash] = useState(true);
   const [isConsentModalOpen, setIsConsentModalOpen] = useState(false);
   const [isSubmittingConsent, setIsSubmittingConsent] = useState(false);
+  const [updateReady, setUpdateReady] = useState<{ version: string; releaseNotes?: string; mandatory: boolean } | null>(null);
+  const [nativeUpgradeRequired, setNativeUpgradeRequired] = useState<{ minNativeVersion: number; downloadUrl: string } | null>(null);
+
+  useEffect(() => {
+    initAppUpdater();
+
+    const onUpdateReady = (e: any) => {
+      setUpdateReady(e.detail);
+    };
+    const onNativeUpgradeReq = (e: any) => {
+      setNativeUpgradeRequired(e.detail);
+    };
+
+    window.addEventListener('aqualicious:update-ready', onUpdateReady);
+    window.addEventListener('aqualicious:native-upgrade-required', onNativeUpgradeReq);
+
+    return () => {
+      window.removeEventListener('aqualicious:update-ready', onUpdateReady);
+      window.removeEventListener('aqualicious:native-upgrade-required', onNativeUpgradeReq);
+    };
+  }, []);
 
   useEffect(() => {
     const onConsentReq = () => setIsConsentModalOpen(true);
@@ -224,7 +246,7 @@ export const App: React.FC = () => {
         {showAdminLayout && (
           <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
         )}
-        <div className={showAdminLayout ? 'main' : (!isAuthPage ? 'pt-16' : 'min-h-screen')}>
+        <div className={showAdminLayout ? 'main' : (!isAuthPage ? 'pt-[calc(4rem+var(--sat))]' : 'min-h-screen')}>
           {showAdminLayout && (
             <Navbar
               onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -485,6 +507,58 @@ export const App: React.FC = () => {
         }}
         isSubmitting={isSubmittingConsent}
       />
+
+      {/* Non-Blocking OTA Update Notification Banner */}
+      {updateReady && (
+        <div className="fixed bottom-4 left-4 right-4 md:left-auto md:right-6 md:w-96 z-50 p-4 bg-[#0b3d91] text-white rounded-2xl shadow-2xl border border-blue-400/30 flex items-start gap-3 animate-in slide-in-from-bottom-3 duration-200">
+          <Sparkles className="w-5 h-5 text-amber-300 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 text-xs">
+            <div className="font-bold text-sm">Update Ready (v{updateReady.version})</div>
+            <p className="text-blue-100 text-[11px] mt-0.5">
+              {updateReady.releaseNotes || 'A new update was downloaded. Restart now to apply.'}
+            </p>
+            <div className="flex gap-2 mt-2.5">
+              <button
+                onClick={() => restartApp()}
+                className="px-3 py-1.5 bg-white text-[#0b3d91] font-bold rounded-lg text-xs hover:bg-blue-50 transition-colors flex items-center gap-1 shadow-xs"
+              >
+                <RefreshCw className="w-3.5 h-3.5" /> Restart Now
+              </button>
+              {!updateReady.mandatory && (
+                <button
+                  onClick={() => setUpdateReady(null)}
+                  className="px-2.5 py-1.5 text-blue-200 hover:text-white text-xs font-semibold"
+                >
+                  Later
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Blocking Native Version Upgrade Screen */}
+      {nativeUpgradeRequired && (
+        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="card max-w-md w-full bg-white p-6 rounded-2xl shadow-2xl text-center space-y-4">
+            <div className="w-12 h-12 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center mx-auto">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <h2 className="text-lg font-bold text-gray-900">App Update Required</h2>
+            <p className="text-xs text-gray-600 leading-relaxed">
+              This version of the AquaLicious mobile app is no longer supported. Please download and install the latest official APK to continue.
+            </p>
+            <a
+              href={nativeUpgradeRequired.downloadUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="btn btn-primary w-full text-xs font-bold py-2.5 rounded-xl block"
+            >
+              Download Latest App
+            </a>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

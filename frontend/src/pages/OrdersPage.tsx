@@ -63,11 +63,21 @@ export const OrdersPage: React.FC = () => {
   // Admin View Payment Modal states
   const [viewPaymentOrder, setViewPaymentOrder] = useState<any | null>(null);
   const [viewPaymentProof, setViewPaymentProof] = useState<any | null>(null);
+  const [proofBlobUrl, setProofBlobUrl] = useState<string | null>(null);
   const [isLoadingProof, setIsLoadingProof] = useState<boolean>(false);
   const [rejectReason, setRejectReason] = useState<string>('');
   const [showRejectInput, setShowRejectInput] = useState<boolean>(false);
   const [modalActionError, setModalActionError] = useState<string | null>(null);
   const [isZoomed, setIsZoomed] = useState<boolean>(false);
+
+  // Clean up blob URL on unmount or when proofBlobUrl changes
+  useEffect(() => {
+    return () => {
+      if (proofBlobUrl) {
+        URL.revokeObjectURL(proofBlobUrl);
+      }
+    };
+  }, [proofBlobUrl]);
 
   // Focus trap refs
   const payModalRef = useRef<HTMLDivElement>(null);
@@ -128,6 +138,10 @@ export const OrdersPage: React.FC = () => {
   };
 
   const closeModals = () => {
+    if (proofBlobUrl) {
+      URL.revokeObjectURL(proofBlobUrl);
+      setProofBlobUrl(null);
+    }
     if (payOrder) setPayOrder(null);
     if (viewPaymentOrder) setViewPaymentOrder(null);
     setIsZoomed(false);
@@ -136,6 +150,10 @@ export const OrdersPage: React.FC = () => {
   // Load payment proof metadata & image for Admin View Payment modal
   useEffect(() => {
     if (!viewPaymentOrder) {
+      if (proofBlobUrl) {
+        URL.revokeObjectURL(proofBlobUrl);
+        setProofBlobUrl(null);
+      }
       setViewPaymentProof(null);
       setShowRejectInput(false);
       setRejectReason('');
@@ -148,20 +166,47 @@ export const OrdersPage: React.FC = () => {
     setIsLoadingProof(true);
     setModalActionError(null);
 
+    const token = localStorage.getItem('aq_token') || sessionStorage.getItem('aq_token') || localStorage.getItem('aqualicious_token') || '';
+
+    // 1. Fetch metadata JSON
     fetch(`/api/orders?proof=${viewPaymentOrder.id}`, {
       headers: {
-        Authorization: `Bearer ${localStorage.getItem('aqualicious_token') || ''}`,
+        Authorization: `Bearer ${token}`,
         Accept: 'application/json'
       }
     })
-      .then((res) => {
+      .then(async (res) => {
         if (!res.ok) {
           if (res.status === 404) {
             return { proof_base64: null, reference_number: viewPaymentOrder.reference_number };
           }
           throw new Error('Payment details could not be loaded');
         }
-        return res.json();
+        const data = await res.json();
+
+        // 2. If proof image exists, fetch binary image blob with Authorization header
+        if (data?.proof_base64) {
+          try {
+            const imgRes = await fetch(`/api/orders?proof=${viewPaymentOrder.id}&raw=1`, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            if (imgRes.ok) {
+              const blob = await imgRes.blob();
+              const objectUrl = URL.createObjectURL(blob);
+              if (isMounted) {
+                setProofBlobUrl((prev) => {
+                  if (prev) URL.revokeObjectURL(prev);
+                  return objectUrl;
+                });
+              } else {
+                URL.revokeObjectURL(objectUrl);
+              }
+            }
+          } catch (e) {
+            console.warn('Failed to load blob image, falling back to base64', e);
+          }
+        }
+        return data;
       })
       .then((data) => {
         if (isMounted) {
@@ -432,6 +477,7 @@ export const OrdersPage: React.FC = () => {
             const canReadyForPickup = allowedActions.includes('READY_FOR_PICKUP');
             const canDispatch = allowedActions.includes('OUT_FOR_DELIVERY');
             const canComplete = allowedActions.includes('COMPLETED');
+            const canCancel = allowedActions.includes('CANCEL');
 
             return (
               <div
@@ -443,21 +489,6 @@ export const OrdersPage: React.FC = () => {
                   <div className="flex items-center gap-3 flex-wrap">
                     <span className="font-mono font-black text-base text-[#1565c0]">
                       #{order.order_number}
-                    </span>
-                    <span
-                      className={`badge font-bold px-3 py-1 ${
-                        rawOrderStatus === 'COMPLETED'
-                          ? 'badge-success'
-                          : rawOrderStatus === 'CANCELLED'
-                          ? 'badge-danger'
-                          : rawOrderStatus === 'READY_FOR_PICKUP' || rawOrderStatus === 'OUT_FOR_DELIVERY'
-                          ? 'badge-info'
-                          : rawOrderStatus === 'PREPARING'
-                          ? 'badge-primary'
-                          : 'badge-warning'
-                      }`}
-                    >
-                      {formatOrderStatus(rawOrderStatus)}
                     </span>
                     <span className="badge badge-info flex items-center gap-1.5 font-semibold px-2.5 py-1">
                       <Truck className="w-3.5 h-3.5" /> {formatFulfillment(order.fulfillment)}
@@ -503,7 +534,7 @@ export const OrdersPage: React.FC = () => {
                       {/* Payment Status Badges */}
                       {rawPaymentStatus === 'COMPLETED' ? (
                         <span className="badge badge-success text-xs font-bold text-white flex items-center gap-1 px-2.5 py-1">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Payment: COMPLETED
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Payment: Completed
                         </span>
                       ) : isCash ? (
                         <span className="badge badge-warning text-xs font-bold px-2.5 py-1">
@@ -511,35 +542,35 @@ export const OrdersPage: React.FC = () => {
                         </span>
                       ) : rawPaymentStatus === 'SUBMITTED' ? (
                         <span className="badge badge-info text-xs font-bold text-white flex items-center gap-1 px-2.5 py-1">
-                          Payment: PROOF SUBMITTED – FOR VERIFICATION
+                          Payment: Proof Submitted – For Verification
                         </span>
                       ) : rawPaymentStatus === 'VERIFIED' ? (
                         <span className="badge badge-success text-xs font-bold text-white flex items-center gap-1 px-2.5 py-1">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Payment: VERIFIED
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Payment: Verified
                         </span>
                       ) : rawPaymentStatus === 'REJECTED' ? (
                         <span className="badge badge-error text-xs font-bold text-white flex items-center gap-1 px-2.5 py-1">
-                          <XCircle className="w-3.5 h-3.5" /> Payment: REJECTED
+                          <XCircle className="w-3.5 h-3.5" /> Payment: Rejected
                         </span>
                       ) : rawPaymentStatus === 'REFUND_REQUIRED' ? (
                         <span className="badge badge-error text-xs font-bold text-white px-2.5 py-1">
-                          Payment: REFUND REQUIRED
+                          Payment: Refund Required
                         </span>
                       ) : rawPaymentStatus === 'REFUNDED' ? (
                         <span className="badge badge-neutral text-xs font-bold px-2.5 py-1">
-                          Payment: REFUNDED
+                          Payment: Refunded
                         </span>
                       ) : (
                         <span className="badge badge-warning text-xs font-bold px-2.5 py-1">
-                          Payment: AWAITING PAYMENT
+                          Payment: Awaiting Payment
                         </span>
                       )}
                     </div>
 
                     {/* Show rejection reason notes if rejected */}
                     {rawPaymentStatus === 'REJECTED' && (order.notes || order.payment?.notes) && (
-                      <div className="text-xs text-red-700 bg-red-50 p-2.5 rounded-lg border border-red-200">
-                        <strong>Rejection Reason:</strong> {order.notes || order.payment?.notes}
+                      <div className="text-xs text-red-700 bg-red-50 p-2.5 rounded-lg border border-red-200 break-words">
+                        <strong>Rejection Reason:</strong> {String(order.notes || order.payment?.notes).slice(0, 500)}
                       </div>
                     )}
 
@@ -556,11 +587,28 @@ export const OrdersPage: React.FC = () => {
                 </div>
 
                 {/* Price & Action Area - Touch-Friendly Buttons (Min 40-44px Height) */}
-                <div className="flex flex-col justify-between items-end border-t md:border-t-0 md:border-l border-gray-200 pt-3 md:pt-0 md:pl-5 w-full md:w-72 md:min-w-[280px]">
-                  <div className="text-right w-full">
-                    <div className="text-xs text-gray-500 font-medium">Order Amount</div>
-                    <div className="text-2xl font-black text-[#0b3d91]">
-                      ₱{Number(order.total).toFixed(2)}
+                <div className="flex flex-col justify-between items-end border-t md:border-t-0 md:border-l border-gray-200 pt-3 md:pt-0 md:pl-5 w-full md:w-80 md:min-w-[300px]">
+                  <div className="w-full">
+                    <div className="text-xs text-gray-500 font-medium text-right mb-1">Order Amount</div>
+                    <div className="flex items-center justify-between md:justify-end gap-3 flex-wrap">
+                      <span
+                        className={`badge font-bold px-3 py-1.5 text-xs ${
+                          rawOrderStatus === 'COMPLETED'
+                            ? 'badge-success'
+                            : rawOrderStatus === 'CANCELLED'
+                            ? 'badge-danger'
+                            : rawOrderStatus === 'READY_FOR_PICKUP' || rawOrderStatus === 'OUT_FOR_DELIVERY'
+                            ? 'badge-info'
+                            : rawOrderStatus === 'PREPARING'
+                            ? 'badge-primary'
+                            : 'badge-warning'
+                        }`}
+                      >
+                        {formatOrderStatus(rawOrderStatus)}
+                      </span>
+                      <span className="text-2xl font-black text-[#0b3d91] whitespace-nowrap">
+                        ₱{Number(order.total).toFixed(2)}
+                      </span>
                     </div>
                   </div>
 
@@ -593,53 +641,61 @@ export const OrdersPage: React.FC = () => {
                     {isAdmin && (
                       <div className="flex flex-col gap-2 w-full">
                         {/* Fulfillment Gating Note for Unverified E-Wallet */}
-                        {gatingNote && rawOrderStatus !== 'COMPLETED' && rawOrderStatus !== 'CANCELLED' ? (
+                        {gatingNote && rawOrderStatus !== 'COMPLETED' && rawOrderStatus !== 'CANCELLED' && (
                           <div className="w-full py-2.5 px-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 text-xs font-bold flex items-center justify-center gap-2 text-center">
                             <AlertTriangle className="w-4 h-4 flex-shrink-0 text-amber-600" />
                             <span>{gatingNote}</span>
                           </div>
-                        ) : (
-                          <>
-                            {canPrepare && (
-                              <button
-                                type="button"
-                                onClick={() => updateStatus(order.id, 'PREPARING')}
-                                className="btn btn-outline min-h-[42px] h-[42px] w-full text-sm font-bold whitespace-nowrap rounded-xl border-gray-300 hover:bg-gray-50"
-                              >
-                                Prepare
-                              </button>
-                            )}
+                        )}
 
-                            {canReadyForPickup && (
-                              <button
-                                type="button"
-                                onClick={() => updateStatus(order.id, 'READY_FOR_PICKUP')}
-                                className="btn btn-info min-h-[42px] h-[42px] w-full text-sm font-bold text-white whitespace-nowrap rounded-xl shadow-sm bg-[#0288d1] hover:bg-[#0277bd] border-none"
-                              >
-                                Ready for Pickup
-                              </button>
-                            )}
+                        {canPrepare && (
+                          <button
+                            type="button"
+                            onClick={() => updateStatus(order.id, 'PREPARING')}
+                            className="btn btn-outline min-h-[42px] h-[42px] w-full text-sm font-bold whitespace-nowrap rounded-xl border-gray-300 hover:bg-gray-50"
+                          >
+                            Prepare
+                          </button>
+                        )}
 
-                            {canDispatch && (
-                              <button
-                                type="button"
-                                onClick={() => updateStatus(order.id, 'OUT_FOR_DELIVERY')}
-                                className="btn btn-info min-h-[42px] h-[42px] w-full text-sm font-bold text-white whitespace-nowrap rounded-xl shadow-sm bg-[#0288d1] hover:bg-[#0277bd] border-none"
-                              >
-                                Out for Delivery
-                              </button>
-                            )}
+                        {canReadyForPickup && (
+                          <button
+                            type="button"
+                            onClick={() => updateStatus(order.id, 'READY_FOR_PICKUP')}
+                            className="btn btn-info min-h-[42px] h-[42px] w-full text-sm font-bold text-white whitespace-nowrap rounded-xl shadow-sm bg-[#0288d1] hover:bg-[#0277bd] border-none"
+                          >
+                            Ready for Pickup
+                          </button>
+                        )}
 
-                            {canComplete && (
-                              <button
-                                type="button"
-                                onClick={() => updateStatus(order.id, 'COMPLETED', isCash)}
-                                className="btn btn-primary min-h-[42px] h-[42px] w-full text-sm font-bold text-white whitespace-nowrap rounded-xl shadow-sm"
-                              >
-                                Complete Order
-                              </button>
-                            )}
-                          </>
+                        {canDispatch && (
+                          <button
+                            type="button"
+                            onClick={() => updateStatus(order.id, 'OUT_FOR_DELIVERY')}
+                            className="btn btn-info min-h-[42px] h-[42px] w-full text-sm font-bold text-white whitespace-nowrap rounded-xl shadow-sm bg-[#0288d1] hover:bg-[#0277bd] border-none"
+                          >
+                            Out for Delivery
+                          </button>
+                        )}
+
+                        {canComplete && (
+                          <button
+                            type="button"
+                            onClick={() => updateStatus(order.id, 'COMPLETED', isCash)}
+                            className="btn btn-primary min-h-[42px] h-[42px] w-full text-sm font-bold text-white whitespace-nowrap rounded-xl shadow-sm"
+                          >
+                            Complete Order
+                          </button>
+                        )}
+
+                        {canCancel && rawOrderStatus !== 'COMPLETED' && rawOrderStatus !== 'CANCELLED' && (
+                          <button
+                            type="button"
+                            onClick={() => updateStatus(order.id, 'CANCELLED')}
+                            className="btn btn-outline btn-error min-h-[42px] h-[42px] w-full text-sm font-bold whitespace-nowrap rounded-xl hover:bg-red-50"
+                          >
+                            Cancel Order
+                          </button>
                         )}
                       </div>
                     )}
@@ -886,7 +942,7 @@ export const OrdersPage: React.FC = () => {
                 ) : viewPaymentProof?.proof_base64 ? (
                   <div className="w-full text-center relative overflow-hidden rounded-lg">
                     <img
-                      src={viewPaymentProof.proof_base64}
+                      src={proofBlobUrl || viewPaymentProof.proof_base64}
                       alt="Customer payment proof"
                       onClick={() => setIsZoomed(!isZoomed)}
                       className={`cursor-pointer transition-all duration-200 rounded-lg shadow-sm border border-gray-300 object-contain mx-auto ${

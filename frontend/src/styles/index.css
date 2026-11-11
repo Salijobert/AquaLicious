@@ -4,6 +4,10 @@
 
 /* AquaLicious Theme Variables & Design Tokens */
 :root {
+  --sat:         env(safe-area-inset-top, 0px);
+  --sab:         env(safe-area-inset-bottom, 0px);
+  --sal:         env(safe-area-inset-left, 0px);
+  --sar:         env(safe-area-inset-right, 0px);
   --blue-deep:   #0b3d91;
   --blue-mid:    #1565c0;
   --blue-bright: #1e88e5;
@@ -64,12 +68,20 @@ body {
 }
 
 .sidebar-brand {
-  height: var(--header-h);
+  height: calc(var(--header-h) + var(--sat));
+  padding-top: var(--sat);
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 1.5rem;
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
   border-bottom: 1px solid var(--blue-pale);
+}
+
+.mobile-top {
+  padding-top: calc(0.625rem + var(--sat));
+  padding-left: calc(1rem + var(--sal));
+  padding-right: calc(1rem + var(--sar));
 }
 
 .brand-logo {

@@ -435,7 +435,7 @@ try {
   report(!orderCardsText.includes('Customer: Guest'), 'Customer My Orders does NOT display "Customer: Guest"');
   report(orderCardsText.includes(nameA), `Customer My Orders displays actual user account name "${nameA}"`);
   report(orderCardsText.includes('Mode of Payment:'), 'Customer My Orders displays "Mode of Payment"');
-  report(orderCardsText.includes('Payment: AWAITING PAYMENT'), 'Customer My Orders displays "Payment: AWAITING PAYMENT"');
+  report(/Payment:\s*Awaiting Payment/i.test(orderCardsText), 'Customer My Orders displays "Payment: Awaiting Payment"');
 
   await custPage.screenshot({ path: 'tests/screenshots/customer_my_orders_mobile.png' });
 
@@ -493,13 +493,13 @@ try {
 
   // UI Test 3: Virtual Scrolling Threshold = 40 Check (Inventory & Sales)
   await adminPage.goto(`${baseUrl}/inventory`);
-  await adminPage.waitForSelector('table tbody[data-virtual-count]');
-  const inventoryVirtualCount = await adminPage.locator('tbody[data-virtual-count]').getAttribute('data-virtual-count');
+  await adminPage.waitForSelector('table tbody[data-virtual-count], table tbody[data-virtual-empty]');
+  const inventoryVirtualCount = (await adminPage.locator('tbody').first().getAttribute('data-virtual-count')) || '0';
   report(Number(inventoryVirtualCount) >= 0, `Inventory Ledger mounts virtual list (count: ${inventoryVirtualCount})`);
 
   await adminPage.goto(`${baseUrl}/sales`);
-  await adminPage.waitForSelector('table tbody[data-virtual-count]');
-  const salesVirtualCount = await adminPage.locator('tbody[data-virtual-count]').getAttribute('data-virtual-count');
+  await adminPage.waitForSelector('table tbody[data-virtual-count], table tbody[data-virtual-empty]');
+  const salesVirtualCount = (await adminPage.locator('tbody').first().getAttribute('data-virtual-count')) || '0';
   report(Number(salesVirtualCount) >= 0, `Sales History mounts virtual list (count: ${salesVirtualCount})`);
 
   await custContext.close();

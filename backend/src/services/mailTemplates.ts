@@ -192,7 +192,7 @@ export function getOrderStatusUpdateTemplate(params: {
   const safeName = escapeHtml(params.customerName);
   const safeOrderNo = escapeHtml(params.orderNumber);
   const safeStatus = escapeHtml(params.status);
-  const safeNotes = escapeHtml(params.notes || '');
+  const safeNotes = escapeHtml((params.notes || '').slice(0, 500));
 
   const html = baseLayout(
     `Order #${safeOrderNo} Status Update`,
@@ -208,7 +208,7 @@ export function getOrderStatusUpdateTemplate(params: {
     <p style="font-size:12px; color:#78909c;">Check your AquaLicious app for live delivery updates or contact our station for immediate inquiries.</p>`
   );
 
-  const text = `Hello ${params.customerName},\n\nYour AquaLicious order #${params.orderNumber} status is now: ${params.status}.\n${params.notes ? `Notes: ${params.notes}\n` : ''}\n— AquaLicious Team`;
+  const text = `Hello ${params.customerName},\n\nYour AquaLicious order #${params.orderNumber} status is now: ${params.status}.\n${params.notes ? `Notes: ${params.notes.slice(0, 500)}\n` : ''}\n— AquaLicious Team`;
 
   return { subject: `Order #${params.orderNumber} Status: ${params.status}`, html, text };
 }

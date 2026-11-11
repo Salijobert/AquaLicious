@@ -6,6 +6,7 @@ import { Droplet, ShoppingCart, Smartphone, User, LogOut, Package, Menu, X, Shie
 import { AboutStationModal } from './AboutStationModal.js';
 import { CustomerAppModal } from './CustomerAppModal.js';
 import { isCapacitorApp } from '../utils/platform.js';
+import { getRunningBundleVersion, checkAndApplyUpdate, BASE_APP_VERSION } from '../services/updater.js';
 
 interface CustomerNavbarProps {
   cartCount?: number;
@@ -21,11 +22,33 @@ export const CustomerNavbar: React.FC<CustomerNavbarProps> = ({ cartCount = 0, o
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isAppOpen, setIsAppOpen] = useState(false);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [updateStatusMsg, setUpdateStatusMsg] = useState<string | null>(null);
 
   const isCustomer = user?.role === 'Customer';
   const isAdmin = user?.role === 'Administrator';
   const path = location.pathname.toLowerCase();
   const isCapacitor = isCapacitorApp();
+
+  const handleManualUpdateCheck = async () => {
+    setIsCheckingUpdate(true);
+    setUpdateStatusMsg(null);
+    try {
+      const res = await checkAndApplyUpdate({ manual: true });
+      if (res.status === 'up_to_date') {
+        setUpdateStatusMsg('App is up to date');
+      } else if (res.status === 'update_ready') {
+        setUpdateStatusMsg(`v${res.version} ready. Tap to restart.`);
+      } else if (res.status === 'error') {
+        setUpdateStatusMsg(res.message);
+      }
+    } catch {
+      setUpdateStatusMsg('Check failed');
+    } finally {
+      setIsCheckingUpdate(false);
+      setTimeout(() => setUpdateStatusMsg(null), 4000);
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -48,7 +71,10 @@ export const CustomerNavbar: React.FC<CustomerNavbarProps> = ({ cartCount = 0, o
 
   return (
     <>
-      <nav className="fixed top-0 left-0 right-0 z-50 h-16 bg-white border-b border-[#e3f2fd] shadow-[0_2px_12px_rgba(21,101,192,0.07)] flex items-center justify-between px-4 sm:px-8 md:px-12">
+      <nav
+        className="fixed top-0 left-0 right-0 z-50 bg-white border-b border-[#e3f2fd] shadow-[0_2px_12px_rgba(21,101,192,0.07)] flex items-center justify-between px-4 sm:px-8 md:px-12"
+        style={{ paddingTop: 'var(--sat)', height: 'calc(4rem + var(--sat))' }}
+      >
         {/* Brand Logo & Name: Always navigates to home ('/') */}
         <div className="flex items-center gap-3">
           <Link to="/" className="flex items-center gap-2.5 group">
@@ -147,7 +173,7 @@ export const CustomerNavbar: React.FC<CustomerNavbarProps> = ({ cartCount = 0, o
 
               <button
                 onClick={handleLogout}
-                className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold text-gray-500 hover:text-red-600 hover:bg-red-50 transition-all flex items-center gap-1"
+                className="hidden md:flex px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold text-gray-500 hover:text-red-600 hover:bg-red-50 transition-all items-center gap-1"
                 title="Sign Out"
               >
                 <LogOut className="w-3.5 h-3.5" />
@@ -171,7 +197,7 @@ export const CustomerNavbar: React.FC<CustomerNavbarProps> = ({ cartCount = 0, o
 
               <button
                 onClick={handleLogout}
-                className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold text-gray-500 hover:text-red-600 hover:bg-red-50 transition-all flex items-center gap-1"
+                className="hidden md:flex px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold text-gray-500 hover:text-red-600 hover:bg-red-50 transition-all items-center gap-1"
                 title="Sign Out"
               >
                 <LogOut className="w-3.5 h-3.5" />
@@ -193,7 +219,10 @@ export const CustomerNavbar: React.FC<CustomerNavbarProps> = ({ cartCount = 0, o
 
       {/* Mobile Drawer Menu */}
       {isMobileMenuOpen && (
-        <div className="fixed inset-x-0 top-16 z-40 bg-white border-b border-[#e3f2fd] shadow-xl md:hidden px-6 py-5 space-y-4 animate-in slide-in-from-top-2 duration-150">
+        <div
+          className="fixed inset-x-0 z-40 bg-white border-b border-[#e3f2fd] shadow-xl md:hidden px-6 py-5 space-y-4 animate-in slide-in-from-top-2 duration-150"
+          style={{ top: 'calc(4rem + var(--sat))' }}
+        >
           <div className="flex flex-col gap-3 text-sm font-semibold text-slate-700 border-b border-slate-100 pb-4">
             <Link
               to="/"
@@ -289,6 +318,27 @@ export const CustomerNavbar: React.FC<CustomerNavbarProps> = ({ cartCount = 0, o
                   REGISTER
                 </Link>
               </div>
+            )}
+          </div>
+
+          {/* Mobile Drawer Footer: In-app version & Update Check */}
+          <div className="pt-3 border-t border-slate-100 flex flex-col gap-1 text-[11px] text-slate-400">
+            <div className="flex items-center justify-between">
+              <span>Version {BASE_APP_VERSION} (bundle {getRunningBundleVersion()})</span>
+              {isCapacitor && (
+                <button
+                  onClick={handleManualUpdateCheck}
+                  disabled={isCheckingUpdate}
+                  className="text-[#1565c0] font-bold hover:underline"
+                >
+                  {isCheckingUpdate ? 'Checking...' : 'Check for updates'}
+                </button>
+              )}
+            </div>
+            {updateStatusMsg && (
+              <span className="text-[10px] text-center text-slate-500 font-medium">
+                {updateStatusMsg}
+              </span>
             )}
           </div>
         </div>

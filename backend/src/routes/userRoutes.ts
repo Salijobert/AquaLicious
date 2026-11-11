@@ -45,7 +45,7 @@ router.delete('/', authenticate, requireRole(Role.ADMIN), async (req: Request, r
   }
 
   try {
-    const result = await UserService.deleteUser(id);
+    const result = await UserService.deleteUser(id, req.user?.id);
     return res.status(200).json(result);
   } catch (err: any) {
     return res.status(err.status || 500).json({ error: err.message || 'User deletion failed' });

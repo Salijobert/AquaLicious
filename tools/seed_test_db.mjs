@@ -26,8 +26,8 @@ async function main() {
 
   // 2. Admin Users
   await prisma.user.upsert({
-    where: { username: 'admin' },
-    update: { active: true, emailVerified: true },
+    where: { id: 1 },
+    update: { username: 'admin', name: 'Administrator', email: 'admin@aqualicious.local', role: 'ADMIN', active: true, emailVerified: true },
     create: {
       id: 1,
       firebaseUid: 'uid-admin',
@@ -41,8 +41,8 @@ async function main() {
   });
 
   await prisma.user.upsert({
-    where: { username: 'test-owner' },
-    update: { active: true, emailVerified: true },
+    where: { id: 2 },
+    update: { username: 'test-owner', name: 'Owner Admin', email: 'owner@aqualicious.local', role: 'ADMIN', active: true, emailVerified: true },
     create: {
       id: 2,
       firebaseUid: 'UCzqYvdMqPdDeiZtzGH12ShaG0M2',

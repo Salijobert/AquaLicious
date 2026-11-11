@@ -1,13 +1,16 @@
 import React, { useState, useRef } from 'react';
-import { useUsers, useCreateUser, useUpdateUser } from '../api/client.js';
-import { UserPlus, Shield, UserCheck, UserX } from 'lucide-react';
+import { useUsers, useCreateUser, useUpdateUser, useDeleteUser } from '../api/client.js';
+import { useAuth } from '../auth/AuthContext.js';
+import { UserPlus, Shield, UserCheck, UserX, Trash2, AlertTriangle } from 'lucide-react';
 import { VirtualTableBody, UserSkeletonRow } from '../components/virtual/index.js';
 import { AdminPageHeader } from '../components/AdminPageHeader.js';
 
 export const UsersPage: React.FC = () => {
+  const { user: currentUser } = useAuth();
   const { data: users, error } = useUsers();
   const createUserMutation = useCreateUser();
   const updateUserMutation = useUpdateUser();
+  const deleteUserMutation = useDeleteUser();
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [name, setName] = useState('');
@@ -15,6 +18,11 @@ export const UsersPage: React.FC = () => {
   const [role, setRole] = useState('Administrator');
   const [search, setSearch] = useState('');
   const [modalError, setModalError] = useState<string | null>(null);
+
+  const [userToDelete, setUserToDelete] = useState<any | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteSuccess, setDeleteSuccess] = useState<string | null>(null);
+
   const usersContainerRef = useRef<HTMLDivElement>(null);
 
   const filteredUsers = React.useMemo(() => {
@@ -55,6 +63,19 @@ export const UsersPage: React.FC = () => {
     }
   };
 
+  const handleDeleteConfirm = async () => {
+    if (!userToDelete) return;
+    setDeleteError(null);
+    try {
+      const res = await deleteUserMutation.mutateAsync(userToDelete.id);
+      setDeleteSuccess(res.message || 'User successfully removed');
+      setUserToDelete(null);
+      setTimeout(() => setDeleteSuccess(null), 5000);
+    } catch (err: any) {
+      setDeleteError(err.message || 'Failed to remove user');
+    }
+  };
+
   return (
     <div className="page-content space-y-6">
       <div id="page-error" className="text-red-500 text-xs empty:hidden">
@@ -73,6 +94,13 @@ export const UsersPage: React.FC = () => {
           </button>
         }
       />
+
+      {deleteSuccess && (
+        <div className="p-3 bg-emerald-50 text-emerald-800 rounded-xl border border-emerald-200 text-xs font-semibold flex items-center justify-between shadow-xs">
+          <span>✓ {deleteSuccess}</span>
+          <button onClick={() => setDeleteSuccess(null)} className="text-emerald-600 hover:text-emerald-900 font-bold ml-2">✕</button>
+        </div>
+      )}
 
       {/* USERS TABLE */}
       <div className="card">
@@ -142,14 +170,26 @@ export const UsersPage: React.FC = () => {
                     {new Date(u.created_at || Date.now()).toLocaleDateString('en-PH')}
                   </td>
                   <td>
-                    <button
-                      onClick={() => toggleActive(u)}
-                      className={`btn btn-xs ${
-                        u.active ? 'btn-danger' : 'btn-primary'
-                      }`}
-                    >
-                      {u.active ? 'Disable' : 'Enable'}
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => toggleActive(u)}
+                        className={`btn btn-xs ${
+                          u.active ? 'btn-danger' : 'btn-primary'
+                        }`}
+                      >
+                        {u.active ? 'Disable' : 'Enable'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setDeleteError(null);
+                          setUserToDelete(u);
+                        }}
+                        className="btn btn-xs btn-outline border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400"
+                        title="Delete or Anonymize Account"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               )}
@@ -233,6 +273,75 @@ export const UsersPage: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE / ANONYMIZE USER CONFIRMATION MODAL */}
+      {userToDelete && (
+        <div className="modal-overlay active">
+          <div className="modal aq-modal" style={{ maxWidth: '480px' }}>
+            <div className="modal-header">
+              <span className="modal-title flex items-center gap-2 text-red-600">
+                <AlertTriangle className="w-5 h-5 text-red-500" /> Remove User Account
+              </span>
+              <button
+                className="modal-close"
+                onClick={() => {
+                  setUserToDelete(null);
+                  setDeleteError(null);
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-4 space-y-4 text-xs">
+              {deleteError && (
+                <div className="p-2.5 bg-red-50 text-red-600 rounded-lg border border-red-200 font-semibold">
+                  {deleteError}
+                </div>
+              )}
+
+              <p className="text-gray-700 leading-relaxed">
+                Are you sure you want to remove user account <strong className="text-gray-900 font-mono">#{userToDelete.id}</strong> (<em>{userToDelete.username}</em>)?
+              </p>
+
+              <div className="bg-amber-50 p-3 rounded-xl border border-amber-200 text-amber-900 space-y-1.5">
+                <div className="font-bold flex items-center gap-1.5">
+                  <Shield className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                  Data Retention & Privacy Notice:
+                </div>
+                <ul className="list-disc list-inside space-y-1 text-[11px] text-amber-800">
+                  <li>If this account has orders, sales, or stock history, personal information will be <strong>anonymized</strong> ("Removed user") to preserve accounting and ledger integrity.</li>
+                  <li>If this account has no transactional history, it will be <strong>permanently purged</strong> from both the database and Firebase Auth.</li>
+                  <li>An administrator cannot delete their own account or the last administrator.</li>
+                </ul>
+              </div>
+
+              <div className="flex gap-2 justify-end pt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  onClick={() => {
+                    setUserToDelete(null);
+                    setDeleteError(null);
+                  }}
+                  disabled={deleteUserMutation.isPending}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteConfirm}
+                  disabled={deleteUserMutation.isPending}
+                  className="btn btn-danger font-bold flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  {deleteUserMutation.isPending ? 'Processing...' : 'Confirm Removal'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

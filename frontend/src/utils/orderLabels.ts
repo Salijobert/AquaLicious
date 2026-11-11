@@ -23,11 +23,11 @@ export function formatPaymentStatus(status?: string | null): string {
     case 'SUBMITTED':
       return 'Proof Submitted – For Verification';
     case 'VERIFIED':
-      return 'Payment Verified';
+      return 'Verified';
     case 'REJECTED':
-      return 'Payment Rejected';
+      return 'Rejected';
     case 'COMPLETED':
-      return 'Payment Completed';
+      return 'Completed';
     case 'REFUND_REQUIRED':
       return 'Refund Required';
     case 'REFUNDED':

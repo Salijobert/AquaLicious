@@ -48,7 +48,7 @@ async function apiReq(endpoint, data = null, method = 'GET', token = '', retries
       } catch {
         body = null;
       }
-      return { status: res.status, data: body };
+      return { status: res.status, data: body, headers: res.headers };
     } catch (err) {
       if (attempt < retries) {
         await new Promise(r => setTimeout(r, 200));
@@ -57,6 +57,20 @@ async function apiReq(endpoint, data = null, method = 'GET', token = '', retries
       throw err;
     }
   }
+}
+
+async function rawReq(endpoint, method = 'GET', token = '', accept = '*/*') {
+  const url = endpoint.startsWith('http') ? endpoint : `${baseUrl}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`;
+  const res = await fetch(url, {
+    method,
+    headers: {
+      'Accept': accept,
+      'Connection': 'close',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    }
+  });
+  const buffer = await res.arrayBuffer();
+  return { status: res.status, headers: res.headers, size: buffer.byteLength };
 }
 
 // 1x1 valid PNG in base64
@@ -171,6 +185,146 @@ try {
   );
 
   // =========================================================================
+  // REQUIREMENT 1.B: CANCELLATION & STOCK RELEASE ON UNPAID, SUBMITTED & REJECTED E-WALLET ORDERS
+  // =========================================================================
+  console.log('\n[Requirement 1.B] Testing Cancellation & Stock Release on Unpaid, Submitted, and Rejected E-Wallet Orders...');
+
+  // 1. Unpaid E-Wallet order cancellation
+  const initialStockUnpaid = (await prisma.product.findUnique({ where: { id: 1 } })).stock;
+  const unpaidOrder = await apiReq('/api/orders', {
+    items: [{ product_id: 1, qty: 2 }],
+    fulfillment: 'PICKUP',
+    method: 'E_WALLET',
+    request_key: randomUUID()
+  }, 'POST', customerToken);
+  const unpaidOrderId = unpaidOrder.data.id;
+  assert.equal((await prisma.product.findUnique({ where: { id: 1 } })).stock, initialStockUnpaid - 2);
+
+  // Check allowed_actions for unpaid E-Wallet order
+  const unpaidMeta = await apiReq(`/api/orders?id=${unpaidOrderId}`, null, 'GET', adminToken);
+  report(
+    JSON.stringify(unpaidMeta.data.allowed_actions) === JSON.stringify(['CANCEL']),
+    'Unpaid E-Wallet order allowed_actions is exactly ["CANCEL"]'
+  );
+
+  // Admin cancels unpaid order
+  const cancelUnpaid = await apiReq('/api/orders', {
+    id: unpaidOrderId,
+    action: 'status',
+    status: 'CANCELLED',
+    notes: 'Admin cancelled unpaid order'
+  }, 'PATCH', adminToken);
+  report(
+    cancelUnpaid.status === 200 &&
+      cancelUnpaid.data.status === 'CANCELLED' &&
+      cancelUnpaid.data.payment_status === 'PENDING',
+    'Admin successfully cancels unpaid E-Wallet order (payment_status remains PENDING)'
+  );
+
+  // Verify stock restored & ledger entry
+  const restoredStockUnpaid = (await prisma.product.findUnique({ where: { id: 1 } })).stock;
+  report(restoredStockUnpaid === initialStockUnpaid, 'Stock restored to original level after unpaid order cancellation');
+  const movementUnpaid = await prisma.stockMovement.findFirst({
+    where: { referenceId: unpaidOrderId, movementType: 'ORDER_RELEASE' }
+  });
+  report(movementUnpaid && movementUnpaid.quantityChange === 2, 'ORDER_RELEASE stock movement recorded with quantity 2');
+
+  // 2. Submitted E-Wallet order cancellation
+  const initialStockSubmitted = (await prisma.product.findUnique({ where: { id: 1 } })).stock;
+  const submittedOrder = await apiReq('/api/orders', {
+    items: [{ product_id: 1, qty: 3 }],
+    fulfillment: 'DELIVERY',
+    address: '123 River Road',
+    method: 'E_WALLET',
+    request_key: randomUUID()
+  }, 'POST', customerToken);
+  const submittedOrderId = submittedOrder.data.id;
+
+  await apiReq('/api/orders', {
+    id: submittedOrderId,
+    action: 'claim',
+    reference_number: `REF-SUBMIT-${randomUUID().substring(0, 6)}`,
+    proof_base64: valid1x1Png
+  }, 'PATCH', customerToken);
+
+  // Check allowed_actions for submitted E-Wallet order
+  const submittedMeta = await apiReq(`/api/orders?id=${submittedOrderId}`, null, 'GET', adminToken);
+  report(
+    JSON.stringify(submittedMeta.data.allowed_actions) === JSON.stringify(['CANCEL']),
+    'Submitted E-Wallet order allowed_actions is exactly ["CANCEL"]'
+  );
+
+  // Admin cancels submitted order
+  const cancelSubmitted = await apiReq('/api/orders', {
+    id: submittedOrderId,
+    action: 'status',
+    status: 'CANCELLED',
+    notes: 'Admin cancelled submitted order'
+  }, 'PATCH', adminToken);
+  report(
+    cancelSubmitted.status === 200 &&
+      cancelSubmitted.data.status === 'CANCELLED' &&
+      cancelSubmitted.data.payment_status === 'SUBMITTED',
+    'Admin successfully cancels submitted E-Wallet order (payment_status remains SUBMITTED)'
+  );
+  const restoredStockSubmitted = (await prisma.product.findUnique({ where: { id: 1 } })).stock;
+  report(restoredStockSubmitted === initialStockSubmitted, 'Stock restored to original level after submitted order cancellation');
+  const movementSubmitted = await prisma.stockMovement.findFirst({
+    where: { referenceId: submittedOrderId, movementType: 'ORDER_RELEASE' }
+  });
+  report(movementSubmitted && movementSubmitted.quantityChange === 3, 'ORDER_RELEASE stock movement recorded for submitted order cancellation');
+
+  // 3. Rejected E-Wallet order cancellation
+  const initialStockRejected = (await prisma.product.findUnique({ where: { id: 1 } })).stock;
+  const rejectedOrder = await apiReq('/api/orders', {
+    items: [{ product_id: 1, qty: 1 }],
+    fulfillment: 'PICKUP',
+    method: 'E_WALLET',
+    request_key: randomUUID()
+  }, 'POST', customerToken);
+  const rejectedOrderId = rejectedOrder.data.id;
+
+  await apiReq('/api/orders', {
+    id: rejectedOrderId,
+    action: 'claim',
+    reference_number: `REF-REJ-${randomUUID().substring(0, 6)}`,
+    proof_base64: valid1x1Png
+  }, 'PATCH', customerToken);
+
+  await apiReq('/api/orders', {
+    id: rejectedOrderId,
+    action: 'reject',
+    notes: 'Fake payment receipt'
+  }, 'PATCH', adminToken);
+
+  // Check allowed_actions for rejected E-Wallet order
+  const rejectedMeta = await apiReq(`/api/orders?id=${rejectedOrderId}`, null, 'GET', adminToken);
+  report(
+    JSON.stringify(rejectedMeta.data.allowed_actions) === JSON.stringify(['CANCEL']),
+    'Rejected E-Wallet order allowed_actions is exactly ["CANCEL"]'
+  );
+
+  // Admin cancels rejected order
+  const cancelRejected = await apiReq('/api/orders', {
+    id: rejectedOrderId,
+    action: 'status',
+    status: 'CANCELLED',
+    notes: 'Admin cancelled rejected order'
+  }, 'PATCH', adminToken);
+  report(
+    cancelRejected.status === 200 &&
+      cancelRejected.data.status === 'CANCELLED' &&
+      cancelRejected.data.payment_status === 'REJECTED',
+    'Admin successfully cancels rejected E-Wallet order (payment_status remains REJECTED)'
+  );
+  const restoredStockRejected = (await prisma.product.findUnique({ where: { id: 1 } })).stock;
+  report(restoredStockRejected === initialStockRejected, 'Stock restored to original level after rejected order cancellation');
+  const movementRejected = await prisma.stockMovement.findFirst({
+    where: { referenceId: rejectedOrderId, movementType: 'ORDER_RELEASE' }
+  });
+  report(movementRejected && movementRejected.quantityChange === 1, 'ORDER_RELEASE stock movement recorded for rejected order cancellation');
+
+  // =========================================================================
   // REQUIREMENT 2: CASH ORDER UNRESTRICTED FULFILLMENT
   // =========================================================================
   console.log('\n[Requirement 2] Verifying Cash Order Fulfillment & Auto-Payment Completion...');
@@ -223,6 +377,9 @@ try {
   const unauthProof = await apiReq(`/api/orders?proof=${orderId}`);
   report(unauthProof.status === 401, 'Unauthenticated GET /api/orders?proof=:id returns 401 Unauthorized');
 
+  const unauthRaw = await rawReq(`/api/orders?proof=${orderId}&raw=1`);
+  report(unauthRaw.status === 401, 'Unauthenticated GET /api/orders?proof=:id&raw=1 returns 401 Unauthorized');
+
   // Admin requests proof metadata -> 200 with full snapshot
   const adminProofMeta = await apiReq(`/api/orders?proof=${orderId}`, null, 'GET', adminToken);
   report(
@@ -235,7 +392,13 @@ try {
 
   // Customer A requests their own proof -> 200
   const ownerProof = await apiReq(`/api/orders?proof=${orderId}`, null, 'GET', customerToken);
-  report(ownerProof.status === 200, 'Order owner customer can view their own payment proof');
+  report(ownerProof.status === 200, 'Order owner customer can view their own payment proof JSON');
+
+  const ownerRaw = await rawReq(`/api/orders?proof=${orderId}&raw=1`, 'GET', customerToken, 'image/png');
+  report(
+    ownerRaw.status === 200 && ownerRaw.headers.get('x-content-type-options') === 'nosniff',
+    'Order owner customer retrieves raw proof image with X-Content-Type-Options: nosniff'
+  );
 
   // Another customer requests Customer A's proof -> 404 (private to owner and admin)
   const otherCustomerToken = generateTestToken({
@@ -245,7 +408,19 @@ try {
     email_verified: true
   });
   const intruderProof = await apiReq(`/api/orders?proof=${orderId}`, null, 'GET', otherCustomerToken);
-  report(intruderProof.status === 404, 'Other customer is blocked from viewing Customer A payment proof (404 Not Found)');
+  report(intruderProof.status === 404, 'Other customer is blocked from viewing Customer A payment proof JSON (404 Not Found)');
+
+  const intruderRaw = await rawReq(`/api/orders?proof=${orderId}&raw=1`, 'GET', otherCustomerToken);
+  report(intruderRaw.status === 404, 'Other customer is blocked from viewing Customer A raw proof image (404 Not Found)');
+
+  // Admin retrieves raw proof image
+  const adminRaw = await rawReq(`/api/orders?proof=${orderId}&raw=1`, 'GET', adminToken, 'image/png');
+  report(
+    adminRaw.status === 200 &&
+      adminRaw.headers.get('x-content-type-options') === 'nosniff' &&
+      adminRaw.headers.get('content-type')?.includes('image/'),
+    'Admin retrieves raw proof image with nosniff and correct image Content-Type'
+  );
 
   // Admin verifies payment
   const verifyRes = await apiReq('/api/orders', {
@@ -254,6 +429,19 @@ try {
     notes: 'Verified station wallet transaction'
   }, 'PATCH', adminToken);
   report(verifyRes.status === 200 && verifyRes.data.payment_status === 'VERIFIED', 'Admin verifies E-Wallet payment');
+
+  // Verify verifiedById and verifiedAt columns are directly populated in sales_orders table
+  const verifiedInDb = await prisma.salesOrder.findUnique({ where: { id: orderId } });
+  report(
+    verifiedInDb && verifiedInDb.verifiedById !== null && verifiedInDb.verifiedAt !== null,
+    'Database sales_orders record directly stores verified_by_id and verified_at columns'
+  );
+
+  // Check auditLog still recorded the verification
+  const auditVerification = await prisma.auditLog.findFirst({
+    where: { entityId: orderId, action: 'PAYMENT_STATUS_VERIFIED' }
+  });
+  report(auditVerification !== null, 'Audit log still contains PAYMENT_STATUS_VERIFIED entry alongside model storage');
 
   // After verification, check audit attribution on proof metadata
   const verifiedProofMeta = await apiReq(`/api/orders?proof=${orderId}`, null, 'GET', adminToken);
@@ -338,6 +526,66 @@ try {
   );
 
   // =========================================================================
+  // REQUIREMENT 4.B: HTML ESCAPING AND 500-CHARACTER CAP ON REJECTION REASON
+  // =========================================================================
+  console.log('\n[Requirement 4.B] Testing HTML Escaping & 500-character cap on Rejection Reason...');
+
+  const htmlPayloadLong = `<script>alert('pwned')</script><b style="color:red">Fake Ref</b> ` + 'Z'.repeat(600);
+
+  // Create order to reject with HTML payload
+  const htmlOrder = await apiReq('/api/orders', {
+    items: [{ product_id: 1, qty: 1 }],
+    fulfillment: 'PICKUP',
+    method: 'E_WALLET',
+    request_key: randomUUID()
+  }, 'POST', customerToken);
+  const htmlOrderId = htmlOrder.data.id;
+
+  await apiReq('/api/orders', {
+    id: htmlOrderId,
+    action: 'claim',
+    reference_number: `REF-HTML-${randomUUID().substring(0, 6)}`,
+    proof_base64: valid1x1Png
+  }, 'PATCH', customerToken);
+
+  const rejectHtmlRes = await apiReq('/api/orders', {
+    id: htmlOrderId,
+    action: 'reject',
+    notes: htmlPayloadLong
+  }, 'PATCH', adminToken);
+
+  report(
+    rejectHtmlRes.status === 200 &&
+      rejectHtmlRes.data.notes.length <= 500,
+    'Rejection notes in API response are strictly capped at 500 characters'
+  );
+
+  const dbHtmlOrder = await prisma.salesOrder.findUnique({ where: { id: htmlOrderId } });
+  report(
+    dbHtmlOrder && dbHtmlOrder.notes.length <= 500,
+    'Rejection notes in database are strictly capped at 500 characters'
+  );
+
+  // Verify email template escaping
+  const { getOrderStatusUpdateTemplate } = await import('../backend/dist/services/mailTemplates.js');
+  const renderedEmail = getOrderStatusUpdateTemplate({
+    orderNumber: 'TEST-XSS-100',
+    customerName: 'Test Customer',
+    status: 'REJECTED',
+    notes: htmlPayloadLong
+  });
+
+  report(
+    !renderedEmail.html.includes('<script>') &&
+      renderedEmail.html.includes('&lt;script&gt;'),
+    'Email HTML template escapes <script> tags to &lt;script&gt; preventing XSS'
+  );
+  report(
+    renderedEmail.text.length > 0 && !renderedEmail.text.includes('Z'.repeat(550)),
+    'Email plain-text template caps notes at 500 characters'
+  );
+
+  // =========================================================================
   // REQUIREMENT 5 & 6: PLAYWRIGHT UI, VIEWPORTS, BUTTON SIZES & ENUM CHECKS
   // =========================================================================
   console.log('\n[Requirement 5 & 6] Playwright UI Testing: Viewports, Button Heights, Clipping & Labels...');
@@ -403,20 +651,31 @@ try {
     await page.goto(`${baseUrl}/orders`);
     await page.waitForSelector('.order', { timeout: 10000 });
 
-    // 1. Check for raw enums in rendered page text
-    const pageText = await page.evaluate(() => document.body.innerText);
-    const hasRawEWallet = /\bE_WALLET\b/.test(pageText);
-    const hasRawReadyForPickup = /\bREADY_FOR_PICKUP\b/.test(pageText);
-    const hasRawProofSubmitted = /\bPROOF_SUBMITTED\b/.test(pageText);
-    const hasRefHash = /\bRef #:\b/.test(pageText);
+    // 1. Check for raw enums in rendered page text & order cards
+    const orderCardsText = await page.evaluate(() => {
+      return Array.from(document.querySelectorAll('.order.card')).map(el => el.innerText).join('\n');
+    });
 
-    report(!hasRawEWallet, `[${vp.name}] No raw "E_WALLET" enum rendered in UI`);
-    report(!hasRawReadyForPickup, `[${vp.name}] No raw "READY_FOR_PICKUP" enum rendered in UI`);
-    report(!hasRawProofSubmitted, `[${vp.name}] No raw "PROOF_SUBMITTED" enum rendered in UI`);
+    // Check for raw uppercase underscored enums like E_WALLET, PROOF_SUBMITTED, READY_FOR_PICKUP
+    const rawEnumsInOrders = (orderCardsText.match(/\b[A-Z0-9]+_[A-Z0-9_]+\b/g) || []).filter(token => {
+      // Allow nothing: every order status, payment status, and payment method enum MUST be formatted
+      return true;
+    });
+
+    report(
+      rawEnumsInOrders.length === 0,
+      `[${vp.name}] Zero raw ALL_CAPS_UNDERSCORE enums in order cards (found: ${rawEnumsInOrders.join(', ') || 'none'})`
+    );
+
+    const hasRefHash = /\bRef #:\b/.test(orderCardsText);
     report(!hasRefHash, `[${vp.name}] No "Ref #:" rendered (replaced by "Reference No.")`);
 
+    // Verify "Payment: Payment ..." is never shown
+    const hasDoublePayment = /Payment:\s*Payment/i.test(orderCardsText);
+    report(!hasDoublePayment, `[${vp.name}] No redundant "Payment: Payment ..." label rendered`);
+
     // 2. Check "Mode of Payment: E-Wallet" or "Mode of Payment: Cash"
-    const hasModeOfPayment = /Mode of Payment:\s*(E-Wallet|Cash)/i.test(pageText);
+    const hasModeOfPayment = /Mode of Payment:\s*(E-Wallet|Cash)/i.test(orderCardsText);
     report(hasModeOfPayment, `[${vp.name}] Rendered "Mode of Payment: E-Wallet" / "Mode of Payment: Cash"`);
 
     // 3. Inspect Action Buttons: height >= 40px, no clipping, font size >= 14px
@@ -436,7 +695,7 @@ try {
     });
 
     const actionButtons = buttonMetrics.filter(b =>
-      ['View Payment', 'Prepare', 'Ready for Pickup', 'Out for Delivery', 'Complete Order'].includes(b.text)
+      ['View Payment', 'Prepare', 'Ready for Pickup', 'Out for Delivery', 'Complete Order', 'Cancel Order'].includes(b.text)
     );
 
     if (actionButtons.length > 0) {
@@ -451,10 +710,11 @@ try {
 
     // 4. Test View Payment modal interaction on desktop & mobile
     if (vp.name === '1366_desktop' || vp.name === '390_mobile') {
-      const viewPaymentLocator = page.locator('.order.card button:has-text("View Payment")').first();
-      if (await viewPaymentLocator.count() > 0) {
-        await viewPaymentLocator.scrollIntoViewIfNeeded();
-        await viewPaymentLocator.click();
+      // 4.A: Order WITH proof image uploaded
+      const viewPaymentWithProof = page.locator('.order.card:has-text("Proof Submitted") button:has-text("View Payment")').first();
+      if (await viewPaymentWithProof.count() > 0) {
+        await viewPaymentWithProof.scrollIntoViewIfNeeded();
+        await viewPaymentWithProof.click();
         await page.waitForSelector('dialog.modal-open', { timeout: 5000 });
 
         const modalText = await page.evaluate(() => {
@@ -469,11 +729,55 @@ try {
           `[${vp.name}] View Payment modal displays title and "Mode of Payment: E-Wallet"`
         );
 
+        // Check for raw enums inside modal
+        const rawEnumsInModal = (modalText.match(/\b[A-Z0-9]+_[A-Z0-9_]+\b/g) || []);
+        report(
+          rawEnumsInModal.length === 0,
+          `[${vp.name}] Zero raw ALL_CAPS_UNDERSCORE enums in modal (found: ${rawEnumsInModal.join(', ') || 'none'})`
+        );
+
+        // Wait for proof image to render (blob URL or base64)
+        await page.waitForSelector('dialog.modal-open img', { timeout: 5000 }).catch(() => {});
+
+        // Check modal image loaded via blob URL or data URI
+        const modalImgSrc = await page.evaluate(() => {
+          const img = document.querySelector('dialog.modal-open img');
+          return img ? img.getAttribute('src') : null;
+        });
+        report(
+          modalImgSrc && (modalImgSrc.startsWith('blob:') || modalImgSrc.startsWith('data:image/')),
+          `[${vp.name}] Modal loads proof image via authorized blob URL or secure data URI`
+        );
+
         // Take screenshot of open modal
         const modalScreenshotPath = path.join(screenshotsDir, `admin_orders_modal_${vp.name}.png`);
         await page.screenshot({ path: modalScreenshotPath });
 
         // Close modal via Escape key or close button
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(500);
+
+        const modalOpenAfterEscape = await page.evaluate(() => !!document.querySelector('dialog.modal-open'));
+        report(!modalOpenAfterEscape, `[${vp.name}] Modal closes and focus returns after pressing Escape`);
+      }
+
+      // 4.B: Order WITHOUT proof uploaded (unpaid)
+      const viewPaymentNoProof = page.locator('.order.card:has-text("Awaiting Payment") button:has-text("View Payment")').first();
+      if (await viewPaymentNoProof.count() > 0) {
+        await viewPaymentNoProof.scrollIntoViewIfNeeded();
+        await viewPaymentNoProof.click();
+        await page.waitForSelector('dialog.modal-open', { timeout: 5000 });
+
+        const noProofModalText = await page.evaluate(() => {
+          const m = document.querySelector('dialog.modal-open');
+          return m ? m.innerText : '';
+        });
+
+        report(
+          noProofModalText.includes('No proof uploaded yet'),
+          `[${vp.name}] Modal shows "No proof uploaded yet" when order has no uploaded slip`
+        );
+
         await page.keyboard.press('Escape');
         await page.waitForTimeout(500);
       }
