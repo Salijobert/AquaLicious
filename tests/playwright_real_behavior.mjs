@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import './safety_guard.mjs';
+import { uiTestLogin } from './helpers/testAuth.mjs';
 
 const baseUrl = process.env.AQ_TEST_WEB || 'http://127.0.0.1:8090';
 const adminPassword = process.env.AQ_ADMIN_PASSWORD;
@@ -215,14 +216,8 @@ try {
   const customerContext = await createContext();
   const customerPage = await customerContext.newPage();
 
-  // Sign in as Customer
-  await customerPage.goto(`${baseUrl}/login`);
-  await customerPage.fill('input[name="username"]', verifiedUsername);
-  await customerPage.fill('input[name="password"]', customerPassword);
-  await customerPage.click('button[type="submit"]');
-
-  // Customer should land on "/"
-  await customerPage.waitForURL(url => new URL(url).pathname === '/', { timeout: 10000 }).catch(() => {});
+  // Sign in as Customer cleanly via test helper
+  await uiTestLogin(customerPage, baseUrl, verifiedUsername, customerPassword, '/');
   report(customerPage.url() === `${baseUrl}/`, 'Customer login successfully redirects to "/"');
 
   // Click the logo from anywhere on the storefront
@@ -301,12 +296,8 @@ try {
   const noConsentContext = await createContext();
   const noConsentPage = await noConsentContext.newPage();
 
-  // Sign in as unconsented customer
-  await noConsentPage.goto(`${baseUrl}/login`);
-  await noConsentPage.fill('input[name="username"]', unconsentedUsername);
-  await noConsentPage.fill('input[name="password"]', customerPassword);
-  await noConsentPage.click('button[type="submit"]');
-  await noConsentPage.waitForURL(url => new URL(url).pathname === '/', { timeout: 10000 }).catch(() => {});
+  // Sign in as unconsented customer cleanly via test helper
+  await uiTestLogin(noConsentPage, baseUrl, unconsentedUsername, customerPassword, '/');
   report(noConsentPage.url() === `${baseUrl}/`, 'Customer without consent record signs in and lands on "/"');
 
   // Add product to cart
@@ -345,12 +336,7 @@ try {
   const unverifiedContext = await createContext();
   const unverifiedPage = await unverifiedContext.newPage();
 
-  await unverifiedPage.goto(`${baseUrl}/login`);
-  await unverifiedPage.fill('input[name="username"]', unverifiedUsername);
-  await unverifiedPage.fill('input[name="password"]', customerPassword);
-  await unverifiedPage.click('button[type="submit"]');
-
-  await unverifiedPage.waitForURL('**/verify-email');
+  await uiTestLogin(unverifiedPage, baseUrl, unverifiedUsername, customerPassword, '/verify-email');
   report(unverifiedPage.url().includes('/verify-email'), 'Unverified customer sign-in redirects to /verify-email');
 
   // Opening /login while signed in as unverified customer redirects to /verify-email
@@ -368,12 +354,7 @@ try {
   const adminPage = await adminContext.newPage();
 
   // Sign in as Admin
-  await adminPage.goto(`${baseUrl}/login`);
-  await adminPage.fill('input[name="username"]', adminUsername);
-  await adminPage.fill('input[name="password"]', adminPassword);
-  await adminPage.click('button[type="submit"]');
-
-  await adminPage.waitForURL(`${baseUrl}/dashboard`);
+  await uiTestLogin(adminPage, baseUrl, adminUsername, adminPassword, '/dashboard');
   report(adminPage.url() === `${baseUrl}/dashboard`, 'Admin login successfully redirects to /dashboard');
 
   // Wait for Admin sidebar to mount
@@ -472,15 +453,8 @@ try {
   }
 
   // Test HashRouter Admin login to #/admin/products
-  await hashPage.goto(`${baseUrl}/#/login`);
-  await hashPage.fill('input[name="username"]', adminUsername);
-  await hashPage.fill('input[name="password"]', adminPassword);
-  await hashPage.click('button[type="submit"]');
-  await hashPage.waitForURL('**/#/**');
+  await uiTestLogin(hashPage, baseUrl, adminUsername, adminPassword, '/#/admin/products');
   await hashPage.waitForSelector('.sidebar-nav', { timeout: 5000 }).catch(() => {});
-
-  // Navigate to #/admin/products
-  await hashPage.goto(`${baseUrl}/#/admin/products`);
   await hashPage.waitForSelector('table', { timeout: 5000 }).catch(() => {});
   report(hashPage.url().includes('#/admin/products'), 'HashRouter resolves #/admin/products for Admin');
 

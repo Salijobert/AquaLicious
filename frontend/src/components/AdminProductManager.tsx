@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Modal } from './Modal.js';
+import { formatPeso } from '../utils/currency.js';
 import {
   useCreateProduct,
   useUpdateProduct,
@@ -17,8 +19,7 @@ import {
   RotateCcw,
   Archive,
   AlertTriangle,
-  Loader2,
-  X
+  Loader2
 } from 'lucide-react';
 
 interface AdminProductManagerProps {
@@ -398,8 +399,8 @@ export const AdminProductManager: React.FC<AdminProductManagerProps> = ({
                       <td>
                         <span className="badge badge-info">{p.category}</span>
                       </td>
-                      <td className="font-bold text-gray-900">₱{Number(p.selling_price).toFixed(2)}</td>
-                      <td className="text-gray-500">₱{Number(p.production_cost || 0).toFixed(2)}</td>
+                      <td className="font-bold text-gray-900">{formatPeso(p.selling_price)}</td>
+                      <td className="text-gray-500">{formatPeso(p.production_cost || 0)}</td>
                       <td style={{ fontWeight: isLow ? 700 : 400, color: isLow ? 'var(--red)' : 'inherit' }}>
                         {p.stock}
                       </td>
@@ -478,37 +479,60 @@ export const AdminProductManager: React.FC<AdminProductManagerProps> = ({
       </div>
 
       {/* CONFIRMATION MODAL FOR DELETE / ARCHIVE */}
-      {deleteTarget && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="delete-modal-title"
-          tabIndex={-1}
-          ref={deleteModalRef}
-        >
-          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-lg flex flex-col overflow-hidden max-h-[90vh]">
-            {/* Header */}
-            <div className="p-4 sm:p-5 border-b border-gray-200 flex items-center justify-between bg-slate-50 shrink-0">
-              <div className="flex items-center gap-2.5 text-red-600">
-                <AlertTriangle className="w-5 h-5 shrink-0" />
-                <h2 id="delete-modal-title" className="text-base sm:text-lg font-bold text-slate-800">
-                  {usageData?.can_delete ? 'Delete Product' : 'Archive Product'}
-                </h2>
-              </div>
-              <button
-                type="button"
-                className="btn btn-ghost btn-circle btn-sm text-gray-400 hover:text-gray-600"
-                onClick={closeDeleteModal}
-                disabled={deleteProductMutation.isPending}
-                aria-label="Close dialog"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Body */}
-            <div className="p-4 sm:p-6 overflow-y-auto space-y-4 text-xs sm:text-sm text-slate-700">
+      <Modal
+        isOpen={Boolean(deleteTarget)}
+        onClose={closeDeleteModal}
+        backdropRef={deleteModalRef}
+        size="lg"
+        headerVariant="subtle"
+        ariaLabelledBy="delete-modal-title"
+        disableClose={deleteProductMutation.isPending}
+        closeOnBackdrop={false}
+        closeAriaLabel="Close dialog"
+        icon={<AlertTriangle className="w-5 h-5 text-red-600" />}
+        title={usageData?.can_delete ? 'Delete Product' : 'Archive Product'}
+        bodyClassName="space-y-4 text-xs sm:text-sm text-slate-700"
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              onClick={closeDeleteModal}
+              disabled={deleteProductMutation.isPending}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={`btn btn-sm font-bold gap-1.5 ${
+                usageData?.can_delete ? 'btn-error text-white' : 'btn-warning text-slate-900'
+              }`}
+              onClick={handleConfirmDelete}
+              disabled={
+                deleteProductMutation.isPending ||
+                isUsageLoading ||
+                Boolean(usageData?.is_blocked)
+              }
+            >
+              {deleteProductMutation.isPending ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Processing...
+                </>
+              ) : usageData?.can_delete ? (
+                <>
+                  <Trash2 className="w-3.5 h-3.5" /> Permanently Delete
+                </>
+              ) : (
+                <>
+                  <Archive className="w-3.5 h-3.5" /> Archive Product
+                </>
+              )}
+            </button>
+          </div>
+        }
+      >
+        {deleteTarget && (
+          <>
               {/* Product Summary Details */}
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5 text-xs">
                 <div className="flex justify-between">
@@ -615,61 +639,19 @@ export const AdminProductManager: React.FC<AdminProductManagerProps> = ({
                   <span>{deleteActionError}</span>
                 </div>
               )}
-            </div>
-
-            {/* Footer Actions */}
-            <div className="p-4 sm:p-5 border-t border-gray-100 flex items-center justify-end gap-2 bg-slate-50 shrink-0">
-              <button
-                type="button"
-                className="btn btn-outline btn-sm"
-                onClick={closeDeleteModal}
-                disabled={deleteProductMutation.isPending}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className={`btn btn-sm font-bold gap-1.5 ${
-                  usageData?.can_delete ? 'btn-error text-white' : 'btn-warning text-slate-900'
-                }`}
-                onClick={handleConfirmDelete}
-                disabled={
-                  deleteProductMutation.isPending ||
-                  isUsageLoading ||
-                  Boolean(usageData?.is_blocked)
-                }
-              >
-                {deleteProductMutation.isPending ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Processing...
-                  </>
-                ) : usageData?.can_delete ? (
-                  <>
-                    <Trash2 className="w-3.5 h-3.5" /> Permanently Delete
-                  </>
-                ) : (
-                  <>
-                    <Archive className="w-3.5 h-3.5" /> Archive Product
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
 
       {/* ADD / EDIT PRODUCT MODAL */}
-      {isModalOpen && (
-        <div className="modal-overlay active">
-          <div className="modal aq-modal" style={{ maxWidth: '550px' }}>
-            <div className="modal-header">
-              <span className="modal-title">
-                {editingProduct ? 'Edit Product' : 'Add New Product'}
-              </span>
-              <button className="modal-close" onClick={() => setIsModalOpen(false)}>
-                ✕
-              </button>
-            </div>
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        size="lg"
+        maxWidth="550px"
+        title={editingProduct ? 'Edit Product' : 'Add New Product'}
+        closeAriaLabel="Close product modal"
+      >
             {modalError && (
               <div className="p-2.5 mb-3 text-xs text-red-600 bg-red-50 rounded-lg border border-red-200">
                 {modalError}
@@ -800,9 +782,7 @@ export const AdminProductManager: React.FC<AdminProductManagerProps> = ({
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
   );
 };

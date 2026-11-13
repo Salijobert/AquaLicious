@@ -79,6 +79,7 @@ model User {
 
   salesOrders     SalesOrder[]     @relation("OrderUser")
   verifiedOrders  SalesOrder[]     @relation("OrderVerifiedBy")
+  cancelledOrders SalesOrder[]     @relation("OrderCancelledBy")
   stockMovements  StockMovement[]
   idempotencyLogs IdempotencyLog[]
   consents        UserConsent[]
@@ -158,6 +159,10 @@ model SalesOrder {
   verifiedAt       DateTime?        @map("verified_at")
   orderStatus      OrderStatus      @default(COMPLETED)
   requestKey       String?          @unique
+  cancelledAt      DateTime?        @map("cancelled_at")
+  cancelledById    Int?             @map("cancelled_by_id")
+  cancelledBy      User?            @relation("OrderCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+  cancelReason     String?          @map("cancel_reason")
   voidReason       String?
   voidedById       Int?
   voidedAt         DateTime?
@@ -167,6 +172,7 @@ model SalesOrder {
   items            SalesOrderItem[]
   emailLogs        EmailLog[]
 
+  @@index([orderStatus, paymentStatus, createdAt])
   @@map("sales_orders")
 }
 

@@ -5,6 +5,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './auth/AuthContext.js';
 import { App } from './App.js';
 import './styles/index.css';
+import { initSafeArea } from './utils/safeArea.js';
+
+// Initialize safe-area variables and dynamic listeners
+initSafeArea();
 
 const queryClient = new QueryClient({
   defaultOptions: {

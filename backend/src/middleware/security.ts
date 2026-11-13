@@ -22,7 +22,7 @@ export const securityHeaders = helmet({
 // Rate Limiter
 export const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: config.nodeEnv === 'test' ? 10000 : 300,
+  max: config.nodeEnv === 'test' ? 10000 : 600,
   standardHeaders: true,
   legacyHeaders: false,
   validate: { xForwardedForHeader: false },

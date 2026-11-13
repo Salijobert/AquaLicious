@@ -22,7 +22,7 @@ const fpAdmin = await req('auth.php', { action: 'forgot_password', email: 'aqual
 ok(fpNonExistent.code === 200 && fpAdmin.code === 200 && fpNonExistent.data.message === fpAdmin.data.message, 'Forgot password returns identical 200 for existing and non-existing email');
 
 // Unverified customer blocked from createOrder (403 EMAIL_NOT_VERIFIED)
-const preVerifyOrder = await req('orders.php', { items: [{ product_id: 1, qty: 1 }], fulfillment: 'PICKUP', method: 'CASH', request_key: randomUUID() }, 'POST', c);
+const preVerifyOrder = await req('orders.php', { items: [{ product_id: 1, qty: 1 }], fulfillment: 'DELIVERY', address: '123 Test St', method: 'CASH', request_key: randomUUID() }, 'POST', c);
 ok(preVerifyOrder.code === 403 && preVerifyOrder.data.code === 'EMAIL_NOT_VERIFIED', 'Unverified customer blocked from createOrder (403 EMAIL_NOT_VERIFIED)');
 
 // Unauthenticated verify_email rejected
@@ -36,7 +36,7 @@ const updatedUser = await prisma.user.update({
   where: { email: c1.data.user.email },
   data: { emailVerified: true }
 });
-const { generateTestToken } = await import('../backend/dist/config/index.js');
+const { generateTestToken } = await import('./helpers/testAuth.mjs');
 c = generateTestToken({
   uid: updatedUser.firebaseUid,
   email: updatedUser.email,
@@ -75,7 +75,7 @@ ok((await req('sales.php', { reason: 'Missing sale id' }, 'PATCH', a)).code === 
 const vp={id:sale.data.id,admin_username:adminUsername,admin_password:password,reason:'Test reversal'};
 ok((await req('sales.php',vp,'PATCH',a)).data.status==='VOIDED','Administrator direct void');
 await req('sales.php',vp,'PATCH',a);ps=(await req('products.php',null,'GET',a)).data;ok(Number(ps.find(p=>p.id==1).stock)===20,'Repeated void restores stock only once');
-const orderBody={items:[{product_id:1,qty:3}],fulfillment:'PICKUP',address:'',method:'CASH',request_key:randomUUID()};
+const orderBody={items:[{product_id:1,qty:3}],fulfillment:'DELIVERY',address:'123 Test St',method:'CASH',request_key:randomUUID()};
 ok((await req('orders.php',{...orderBody,expected_total:'1.00',request_key:randomUUID()},'POST',c)).code===409,'Stale customer total rejected before reserving');
 const order=await req('orders.php',orderBody,'POST',c);ok(order.code===200,'Verified customer successfully places order');
 ok((await req('orders.php',orderBody,'POST',c)).data.id===order.data.id,'Order retry is idempotent');

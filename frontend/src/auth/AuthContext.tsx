@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { AuthProfile, loginUser, registerCustomer, logoutUser } from './firebase.js';
+import { AuthProfile, loginUser, registerCustomer, logoutUser, onFirebaseIdTokenChanged } from './firebase.js';
 import { resolver } from '../api/multiServerResolver.js';
 
 interface AuthContextType {
@@ -46,6 +46,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     refreshProfile();
+
+    const handleSessionExpired = () => {
+      resolver.setToken('');
+      setUser(null);
+      setToken(null);
+      logoutUser().catch(() => {});
+    };
+
+    window.addEventListener('aqualicious:session-expired', handleSessionExpired);
+    const unsubToken = onFirebaseIdTokenChanged((freshToken) => {
+      if (freshToken) setToken(freshToken);
+    });
+
+    return () => {
+      window.removeEventListener('aqualicious:session-expired', handleSessionExpired);
+      unsubToken();
+    };
   }, []);
 
   const login = async (usernameOrEmail: string, p: string): Promise<AuthProfile> => {

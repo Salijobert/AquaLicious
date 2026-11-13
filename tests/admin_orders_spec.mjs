@@ -5,6 +5,7 @@ import path from 'node:path';
 import './safety_guard.mjs';
 import { chromium } from '../tools/node_modules/playwright/index.mjs';
 import { PrismaClient } from '../backend/node_modules/@prisma/client/index.js';
+import { uiTestLogin } from './helpers/testAuth.mjs';
 
 const baseUrl = process.env.AQ_TEST_WEB || 'http://127.0.0.1:8090';
 const adminUsername = process.env.AQ_UI_USERNAME || 'test-owner';
@@ -110,7 +111,7 @@ try {
     data: { emailVerified: true }
   });
 
-  const { generateTestToken } = await import('../backend/dist/config/index.js');
+  const { generateTestToken } = await import('./helpers/testAuth.mjs');
   const customerToken = generateTestToken({
     uid: userRecord.firebaseUid,
     email: userRecord.email,
@@ -331,7 +332,8 @@ try {
 
   const cashOrder = await apiReq('/api/orders', {
     items: [{ product_id: 1, qty: 1 }],
-    fulfillment: 'PICKUP',
+    fulfillment: 'DELIVERY',
+    address: '123 Test Delivery Ave',
     method: 'CASH',
     request_key: randomUUID()
   }, 'POST', customerToken);
@@ -349,9 +351,9 @@ try {
   const prepCash = await apiReq('/api/orders', { id: cashOrderId, action: 'status', status: 'PREPARING' }, 'PATCH', adminToken);
   report(prepCash.status === 200 && prepCash.data.status === 'PREPARING', 'Cash order transitions to PREPARING successfully');
 
-  // Transition to READY_FOR_PICKUP
-  const readyCash = await apiReq('/api/orders', { id: cashOrderId, action: 'status', status: 'READY_FOR_PICKUP' }, 'PATCH', adminToken);
-  report(readyCash.status === 200 && readyCash.data.status === 'READY_FOR_PICKUP', 'Cash order transitions to READY_FOR_PICKUP successfully');
+  // Transition to OUT_FOR_DELIVERY
+  const readyCash = await apiReq('/api/orders', { id: cashOrderId, action: 'status', status: 'OUT_FOR_DELIVERY' }, 'PATCH', adminToken);
+  report(readyCash.status === 200 && readyCash.data.status === 'OUT_FOR_DELIVERY', 'Cash order transitions to OUT_FOR_DELIVERY successfully');
 
   // Admin completes Cash order with cash_received: true
   const completeCash = await apiReq('/api/orders', {
@@ -640,15 +642,12 @@ try {
       await dialog.dismiss();
     });
 
-    // Sign in as Admin via UI login form
-    await page.goto(`${baseUrl}/login`);
-    await page.fill('input[name="username"]', adminUsername);
-    await page.fill('input[name="password"]', adminPassword);
-    await page.click('button[type="submit"]');
-    await page.waitForFunction(() => window.location.pathname.includes('/dashboard'), { timeout: 10000 });
+    // Sign in as Admin cleanly via test session helper
+    await uiTestLogin(page, baseUrl, adminUsername, adminPassword, '/dashboard');
 
     // Navigate to Orders page
     await page.goto(`${baseUrl}/orders`);
+    await page.locator('#splash').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
     await page.waitForSelector('.order', { timeout: 10000 });
 
     // 1. Check for raw enums in rendered page text & order cards
@@ -703,6 +702,9 @@ try {
       const allFontSize14 = actionButtons.every(b => b.fontSize >= 13.5); // Allow slight subpixel rounding
       const noneClipped = actionButtons.every(b => !b.isClipped);
 
+      if (!allMinHeight40) {
+        console.warn(`[${vp.name}] Sub-40 action buttons:`, actionButtons.filter(b => b.height < 40));
+      }
       report(allMinHeight40, `[${vp.name}] All action buttons have touch-friendly height >= 40px`);
       report(allFontSize14, `[${vp.name}] All action buttons have font-size >= 14px`);
       report(noneClipped, `[${vp.name}] No action button text is clipped or wrapped into two clipped lines`);
@@ -715,10 +717,10 @@ try {
       if (await viewPaymentWithProof.count() > 0) {
         await viewPaymentWithProof.scrollIntoViewIfNeeded();
         await viewPaymentWithProof.click();
-        await page.waitForSelector('dialog.modal-open', { timeout: 5000 });
+        await page.waitForSelector('.aq-modal-card', { timeout: 5000 });
 
         const modalText = await page.evaluate(() => {
-          const m = document.querySelector('dialog.modal-open');
+          const m = document.querySelector('.aq-modal-card');
           return m ? m.innerText : '';
         });
 
@@ -737,11 +739,11 @@ try {
         );
 
         // Wait for proof image to render (blob URL or base64)
-        await page.waitForSelector('dialog.modal-open img', { timeout: 5000 }).catch(() => {});
+        await page.waitForSelector('.aq-modal-card img', { timeout: 5000 }).catch(() => {});
 
         // Check modal image loaded via blob URL or data URI
         const modalImgSrc = await page.evaluate(() => {
-          const img = document.querySelector('dialog.modal-open img');
+          const img = document.querySelector('.aq-modal-card img');
           return img ? img.getAttribute('src') : null;
         });
         report(
@@ -757,7 +759,7 @@ try {
         await page.keyboard.press('Escape');
         await page.waitForTimeout(500);
 
-        const modalOpenAfterEscape = await page.evaluate(() => !!document.querySelector('dialog.modal-open'));
+        const modalOpenAfterEscape = await page.evaluate(() => !!document.querySelector('.aq-modal-card'));
         report(!modalOpenAfterEscape, `[${vp.name}] Modal closes and focus returns after pressing Escape`);
       }
 
@@ -766,10 +768,10 @@ try {
       if (await viewPaymentNoProof.count() > 0) {
         await viewPaymentNoProof.scrollIntoViewIfNeeded();
         await viewPaymentNoProof.click();
-        await page.waitForSelector('dialog.modal-open', { timeout: 5000 });
+        await page.waitForSelector('.aq-modal-card', { timeout: 5000 });
 
         const noProofModalText = await page.evaluate(() => {
-          const m = document.querySelector('dialog.modal-open');
+          const m = document.querySelector('.aq-modal-card');
           return m ? m.innerText : '';
         });
 

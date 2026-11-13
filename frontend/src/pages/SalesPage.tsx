@@ -1,10 +1,11 @@
 import React, { useState, useRef } from 'react';
 import { useProducts, useCheckout, useSales } from '../api/client.js';
-import { ShoppingCart, Plus, Minus, Trash2, Search, AlertCircle } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Trash2, Search, AlertCircle, PhilippinePeso } from 'lucide-react';
 import { ReceiptModal } from '../components/ReceiptModal.js';
 import { VoidModal } from '../components/VoidModal.js';
 import { VirtualTableBody, SalesHistorySkeletonRow } from '../components/virtual/index.js';
 import { AdminPageHeader } from '../components/AdminPageHeader.js';
+import { formatPeso } from '../utils/currency.js';
 
 export const SalesPage: React.FC = () => {
   const { data: products } = useProducts();
@@ -91,7 +92,7 @@ export const SalesPage: React.FC = () => {
 
     const cash = Number(cashTendered);
     if (isNaN(cash) || cash < totalAmount) {
-      setError(`Insufficient cash tendered. Total is ₱${totalAmount.toFixed(2)}, entered ₱${cashTendered || 0}`);
+      setError(`Insufficient cash tendered. Total is ${formatPeso(totalAmount)}, entered ${formatPeso(cashTendered || 0)}`);
       return;
     }
 
@@ -127,7 +128,7 @@ export const SalesPage: React.FC = () => {
         <div className="stat-card">
           <div className="stat-label">Today's Sales</div>
           <div className="stat-value">{todaySales.length}</div>
-          <div className="stat-sub">₱{todayRevenue.toLocaleString()} revenue</div>
+          <div className="stat-sub">{formatPeso(todayRevenue)} revenue</div>
           <div className="stat-icon icon-blue">
             <svg viewBox="0 0 24 24" fill="currentColor">
               <path d="M19 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.11 0 2-.9 2-2V5c0-1.1-.89-2-2-2z" />
@@ -148,18 +149,16 @@ export const SalesPage: React.FC = () => {
 
         <div className="stat-card">
           <div className="stat-label">Total Revenue</div>
-          <div className="stat-value">₱{totalRevenue.toLocaleString()}</div>
+          <div className="stat-value">{formatPeso(totalRevenue)}</div>
           <div className="stat-sub">Lifetime station sales</div>
           <div className="stat-icon icon-orange">
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <text x="12" y="18.5" textAnchor="middle" fontSize="19" fontWeight="700" fontFamily="Poppins,Arial,sans-serif">₱</text>
-            </svg>
+            <PhilippinePeso className="w-5 h-5" />
           </div>
         </div>
 
         <div className="stat-card">
           <div className="stat-label">Avg Transaction</div>
-          <div className="stat-value">₱{avgTx}</div>
+          <div className="stat-value">{formatPeso(avgTx)}</div>
           <div className="stat-sub">Average per receipt</div>
           <div className="stat-icon icon-blue">
             <svg viewBox="0 0 24 24" fill="currentColor">
@@ -214,7 +213,7 @@ export const SalesPage: React.FC = () => {
                   </div>
                   <div className="text-[11px] text-gray-400 mt-0.5">{p.sku} · {p.volume_label}</div>
                   <div className="price text-lg font-black text-[#1565c0] mt-2">
-                    ₱{Number(p.selling_price).toFixed(2)}
+                    {formatPeso(p.selling_price)}
                   </div>
                   <div className="muted text-[11px] text-gray-500">
                     Stock: <strong className={p.stock <= p.reorder_pt ? 'text-red-600 font-bold' : ''}>{p.stock}</strong> units
@@ -261,7 +260,7 @@ export const SalesPage: React.FC = () => {
                 <div key={item.id} className="cart-line flex justify-between items-center p-2.5 bg-gray-50 rounded-xl border border-gray-200 text-xs">
                   <div>
                     <div className="font-bold text-gray-800">{item.name}</div>
-                    <div className="text-gray-500 font-medium">₱{item.price.toFixed(2)} each</div>
+                    <div className="text-gray-500 font-medium">{formatPeso(item.price)} each</div>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -295,7 +294,7 @@ export const SalesPage: React.FC = () => {
           <div className="border-t border-gray-200 pt-4 space-y-3">
             <div className="flex justify-between items-center text-sm">
               <span className="font-bold text-gray-600">Total Due:</span>
-              <span className="text-2xl font-black text-[#0b3d91]">₱{totalAmount.toFixed(2)}</span>
+              <span className="text-2xl font-black text-[#0b3d91]">{formatPeso(totalAmount)}</span>
             </div>
 
             <form id="checkout-form" onSubmit={handleCheckout} className="space-y-3 pt-2">
@@ -317,7 +316,7 @@ export const SalesPage: React.FC = () => {
               {Number(cashTendered) >= totalAmount && totalAmount > 0 && (
                 <div className="flex justify-between text-xs font-bold text-emerald-600 px-1 bg-emerald-50 p-2 rounded-lg border border-emerald-200">
                   <span>Calculated Change:</span>
-                  <span>₱{(Number(cashTendered) - totalAmount).toFixed(2)}</span>
+                  <span>{formatPeso(Number(cashTendered) - totalAmount)}</span>
                 </div>
               )}
 
@@ -360,7 +359,7 @@ export const SalesPage: React.FC = () => {
                 <tr key={sale.id} className={sale.status === 'VOIDED' ? 'opacity-60 line-through' : ''}>
                   <td className="font-mono font-bold text-[#1565c0]">#{sale.order_number}</td>
                   <td>{sale.cashier}</td>
-                  <td className="font-bold">₱{Number(sale.total).toFixed(2)}</td>
+                  <td className="font-bold">{formatPeso(sale.total)}</td>
                   <td>
                     <span
                       className={`badge ${

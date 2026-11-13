@@ -62,9 +62,10 @@ function baseLayout(title: string, bodyContent: string): string {
 }
 
 // 1. Email Verification
-export function getVerificationEmailTemplate(params: { name: string; link: string }) {
+export function getVerificationEmailTemplate(params: { name: string; link: string; sentAt?: Date }) {
   const safeName = escapeHtml(params.name);
   const safeLink = escapeHtml(params.link);
+  const sentTime = formatManilaTime(params.sentAt || new Date());
 
   const html = baseLayout(
     'Verify your AquaLicious Email',
@@ -75,10 +76,10 @@ export function getVerificationEmailTemplate(params: { name: string; link: strin
       <a href="${safeLink}" class="btn" target="_blank" rel="noopener noreferrer">Verify Email Address</a>
     </div>
     <p style="font-size:12px; color:#78909c;">Or copy and paste this link into your browser:<br><a href="${safeLink}" style="color:#1565c0; word-break:break-all;">${safeLink}</a></p>
-    <p>This verification link will expire in 24 hours. If you did not create this account, no further action is required.</p>`
+    <p style="font-size:12px; color:#546e7a;">Sent at <strong>${escapeHtml(sentTime)}</strong> (Asia/Manila). This is a single-use verification link — if you requested more than one email, only use the newest link.</p>`
   );
 
-  const text = `Hello ${params.name},\n\nThank you for creating an account with AquaLicious.\nTo verify your email address and activate your ordering account, visit:\n${params.link}\n\nThis link expires in 24 hours.\n\n— AquaLicious Team`;
+  const text = `Hello ${params.name},\n\nThank you for creating an account with AquaLicious.\nTo verify your email address and activate your ordering account, visit:\n${params.link}\n\nSent at ${sentTime} (Asia/Manila). If you requested more than one email, only use the newest link.\n\n— AquaLicious Team`;
 
   return { subject: 'Verify Your AquaLicious Account', html, text };
 }
@@ -113,6 +114,18 @@ export interface OrderReceiptItem {
   subtotal: number | string;
 }
 
+const mailPesoFormatter = new Intl.NumberFormat('en-PH', {
+  style: 'currency',
+  currency: 'PHP',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2
+});
+
+function formatPeso(value: number | string | null | undefined): string {
+  const num = Number(value ?? 0);
+  return mailPesoFormatter.format(Number.isFinite(num) ? num : 0).replace(/^PHP\s*/, '₱');
+}
+
 export function getOrderReceiptTemplate(params: {
   orderNumber: string;
   customerName: string;
@@ -130,15 +143,15 @@ export function getOrderReceiptTemplate(params: {
   const safeFulfillment = escapeHtml(params.fulfillment);
   const safeAddress = escapeHtml(params.address || 'Pick up at Station');
   const dateFormatted = formatManilaTime(params.createdAt || new Date());
-  const numTotal = Number(params.total).toFixed(2);
+  const formattedTotal = formatPeso(params.total);
 
   const rows = params.items
     .map(
       (item) => `<tr>
       <td><strong>${escapeHtml(item.name)}</strong></td>
       <td style="text-align:center;">${item.qty}</td>
-      <td style="text-align:right;">₱${Number(item.unitPrice).toFixed(2)}</td>
-      <td style="text-align:right;">₱${Number(item.subtotal).toFixed(2)}</td>
+      <td style="text-align:right;">${formatPeso(item.unitPrice)}</td>
+      <td style="text-align:right;">${formatPeso(item.subtotal)}</td>
     </tr>`
     )
     .join('');
@@ -166,7 +179,7 @@ export function getOrderReceiptTemplate(params: {
         ${rows}
         <tr class="total-row">
           <td colspan="3" style="text-align:right; border-top:2px solid #cfd8dc;">Grand Total:</td>
-          <td style="text-align:right; border-top:2px solid #cfd8dc;">₱${numTotal}</td>
+          <td style="text-align:right; border-top:2px solid #cfd8dc;">${formattedTotal}</td>
         </tr>
       </tbody>
     </table>
@@ -174,10 +187,10 @@ export function getOrderReceiptTemplate(params: {
   );
 
   const textLines = params.items
-    .map((i) => `• ${i.name} x ${i.qty} @ ₱${Number(i.unitPrice).toFixed(2)} = ₱${Number(i.subtotal).toFixed(2)}`)
+    .map((i) => `• ${i.name} x ${i.qty} @ ${formatPeso(i.unitPrice)} = ${formatPeso(i.subtotal)}`)
     .join('\n');
 
-  const text = `AquaLicious Order Receipt\nOrder #${params.orderNumber}\nCustomer: ${params.customerName}\nDate: ${dateFormatted}\nFulfillment: ${params.fulfillment} (${params.address || 'Pickup'})\nPayment: ${params.paymentMethod}\n\nItems:\n${textLines}\n\nTotal: ₱${numTotal}\n\nThank you for choosing AquaLicious!`;
+  const text = `AquaLicious Order Receipt\nOrder #${params.orderNumber}\nCustomer: ${params.customerName}\nDate: ${dateFormatted}\nFulfillment: ${params.fulfillment} (${params.address || 'Pickup'})\nPayment: ${params.paymentMethod}\n\nItems:\n${textLines}\n\nTotal: ${formattedTotal}\n\nThank you for choosing AquaLicious!`;
 
   return { subject: `AquaLicious Order Receipt #${params.orderNumber}`, html, text };
 }
@@ -233,7 +246,7 @@ export function getAdminOrderAlertTemplate(params: {
     <ul>
       <li><strong>Order:</strong> #${safeOrder}</li>
       <li><strong>Customer:</strong> ${safeCustomer}</li>
-      <li><strong>Amount:</strong> ₱${Number(params.total).toFixed(2)}</li>
+      <li><strong>Amount:</strong> ${formatPeso(params.total)}</li>
       <li><strong>Payment Method:</strong> ${escapeHtml((params.paymentMethod === 'GCASH_QR' || params.paymentMethod === 'MAYA_QR' || params.paymentMethod === 'E_WALLET') ? 'E-Wallet' : 'Cash')}</li>
       <li><strong>Fulfillment:</strong> ${escapeHtml(params.fulfillment)}</li>
     </ul>
@@ -242,7 +255,7 @@ export function getAdminOrderAlertTemplate(params: {
     </div>`
   );
 
-  const text = `AquaLicious Station Alert: ${actionText}\nOrder #${params.orderNumber} by ${params.customerName}\nTotal: ₱${Number(params.total).toFixed(2)}\nView at: ${config.frontendUrl}/orders`;
+  const text = `AquaLicious Station Alert: ${actionText}\nOrder #${params.orderNumber} by ${params.customerName}\nTotal: ${formatPeso(params.total)}\nView at: ${config.frontendUrl}/orders`;
 
   return { subject: `[AquaLicious Alert] ${actionText} #${params.orderNumber}`, html, text };
 }

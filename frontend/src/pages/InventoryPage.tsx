@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { Modal } from '../components/Modal.js';
 import { useInventory, useAdjustStock } from '../api/client.js';
 import { useAuth } from '../auth/AuthContext.js';
 import { Calculator, Plus, History, AlertTriangle } from 'lucide-react';
@@ -256,17 +257,16 @@ export const InventoryPage: React.FC = () => {
       </div>
 
       {/* RESTOCK / ADJUST MODAL */}
-      {selectedProduct && (
-        <div className="modal-overlay active">
-          <div className="modal aq-modal">
-            <div className="modal-header">
-              <span className="modal-title">
-                {adjustType === 'RESTOCK' ? 'Restock Product' : 'Adjust Inventory'}
-              </span>
-              <button className="modal-close" onClick={() => setSelectedProduct(null)}>
-                ✕
-              </button>
-            </div>
+      <Modal
+        isOpen={Boolean(selectedProduct)}
+        onClose={() => setSelectedProduct(null)}
+        size="md"
+        maxWidth="520px"
+        title={adjustType === 'RESTOCK' ? 'Restock Product' : 'Adjust Inventory'}
+        closeAriaLabel="Close stock modal"
+      >
+        {selectedProduct && (
+          <>
             {error && (
               <div className="p-2.5 mb-3 text-xs text-red-600 bg-red-50 rounded-lg border border-red-200">
                 {error}
@@ -345,9 +345,9 @@ export const InventoryPage: React.FC = () => {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
 
       {/* ROP CALCULATOR MODAL */}
       <RopCalculatorModal isOpen={isRopOpen} onClose={() => setIsRopOpen(false)} />

@@ -16,7 +16,8 @@ bootstrap(function() {
  if($m==='POST') {
   if($u['role']!=='Customer')fail('Use POS for walk-in sales',403);
   $key=requestKey($b); $mode=$b['fulfillment']??''; $pay=$b['method']??'';
-  if(!in_array($mode,['PICKUP','DELIVERY']) || !in_array($pay,['CASH','GCASH_QR','MAYA_QR']))fail('Invalid fulfillment or payment method');
+  if(!in_array($mode,['PICKUP','DELIVERY']) || !in_array($pay,['CASH','GCASH_QR','MAYA_QR','E_WALLET']))fail('Invalid fulfillment or payment method');
+  if($mode==='PICKUP' && $pay==='CASH')fail('Pickup at Station orders require E-Wallet payment',422);
   if($pay!=='CASH' && !getenv($pay==='GCASH_QR'?'GCASH_QR_URL':'MAYA_QR_URL'))fail('Merchant QR is not configured',409);
   $address=txt($b,'address',500,$mode==='DELIVERY');
   return atomic(function()use($u,$b,$key,$mode,$pay,$address) {

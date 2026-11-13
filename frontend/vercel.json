@@ -44,9 +44,24 @@
     { "source": "/admin/products.html", "destination": "/admin/products", "permanent": true },
     { "source": "/frontend/pages/admin/products.html", "destination": "/admin/products", "permanent": true }
   ],
+  "headers": [
+    {
+      "source": "/update-manifest.json",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" },
+        { "key": "Content-Type", "value": "application/json; charset=utf-8" }
+      ]
+    },
+    {
+      "source": "/updates/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    }
+  ],
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/((?!update-manifest\\.json|updates/).*)",
       "destination": "/"
     }
   ]

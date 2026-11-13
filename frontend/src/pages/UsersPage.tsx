@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { Modal } from '../components/Modal.js';
 import { useUsers, useCreateUser, useUpdateUser, useDeleteUser } from '../api/client.js';
 import { useAuth } from '../auth/AuthContext.js';
 import { UserPlus, Shield, UserCheck, UserX, Trash2, AlertTriangle } from 'lucide-react';
@@ -207,15 +208,14 @@ export const UsersPage: React.FC = () => {
       </div>
 
       {/* PROVISION USER MODAL */}
-      {isCreateOpen && (
-        <div className="modal-overlay active">
-          <div className="modal aq-modal" style={{ maxWidth: '440px' }}>
-            <div className="modal-header">
-              <span className="modal-title">Provision User</span>
-              <button className="modal-close" onClick={() => setIsCreateOpen(false)}>
-                ✕
-              </button>
-            </div>
+      <Modal
+        isOpen={isCreateOpen}
+        onClose={() => setIsCreateOpen(false)}
+        size="md"
+        maxWidth="440px"
+        title="Provision User"
+        closeAriaLabel="Close provision user modal"
+      >
             {modalError && (
               <div className="p-2.5 mb-3 bg-red-50 text-red-600 rounded-lg text-xs border border-red-200">
                 {modalError}
@@ -273,30 +273,26 @@ export const UsersPage: React.FC = () => {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {/* DELETE / ANONYMIZE USER CONFIRMATION MODAL */}
-      {userToDelete && (
-        <div className="modal-overlay active">
-          <div className="modal aq-modal" style={{ maxWidth: '480px' }}>
-            <div className="modal-header">
-              <span className="modal-title flex items-center gap-2 text-red-600">
-                <AlertTriangle className="w-5 h-5 text-red-500" /> Remove User Account
-              </span>
-              <button
-                className="modal-close"
-                onClick={() => {
-                  setUserToDelete(null);
-                  setDeleteError(null);
-                }}
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="p-4 space-y-4 text-xs">
+      <Modal
+        isOpen={Boolean(userToDelete)}
+        onClose={() => {
+          setUserToDelete(null);
+          setDeleteError(null);
+        }}
+        size="md"
+        maxWidth="480px"
+        headerVariant="danger"
+        disableClose={deleteUserMutation.isPending}
+        closeAriaLabel="Close remove user modal"
+        icon={<AlertTriangle className="w-5 h-5 text-red-600" />}
+        title="Remove User Account"
+        bodyClassName="space-y-4 text-xs"
+      >
+        {userToDelete && (
+          <>
               {deleteError && (
                 <div className="p-2.5 bg-red-50 text-red-600 rounded-lg border border-red-200 font-semibold">
                   {deleteError}
@@ -341,10 +337,9 @@ export const UsersPage: React.FC = () => {
                   {deleteUserMutation.isPending ? 'Processing...' : 'Confirm Removal'}
                 </button>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
     </div>
   );
 };

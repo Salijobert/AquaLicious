@@ -2,6 +2,8 @@ import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from './auth/AuthContext.js';
 import { Navbar } from './components/Navbar.js';
+import { Modal } from './components/Modal.js';
+import { formatPeso } from './utils/currency.js';
 import { CustomerNavbar } from './components/CustomerNavbar.js';
 import { Sidebar } from './components/Sidebar.js';
 import { LoginPage } from './pages/LoginPage.js';
@@ -16,6 +18,7 @@ import { RequireAuth, RequireRole, PageLoadingSpinner } from './components/Route
 import { useCreateOrder } from './api/client.js';
 import { resolver } from './api/multiServerResolver.js';
 import { TermsPrivacyModal } from './components/TermsPrivacyModal.js';
+import { getFriendlyErrorMessage } from './utils/orderLabels.js';
 import { ShoppingCart, X, Plus, Minus, Droplet, AlertTriangle, Sparkles, RefreshCw } from 'lucide-react';
 import { initAppUpdater, restartApp } from './services/updater.js';
 
@@ -54,7 +57,8 @@ export const App: React.FC = () => {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [fulfillment, setFulfillment] = useState<'PICKUP' | 'DELIVERY'>('PICKUP');
   const [address, setAddress] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'E_WALLET'>('CASH');
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'E_WALLET'>('E_WALLET');
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [showSplash, setShowSplash] = useState(true);
   const [isConsentModalOpen, setIsConsentModalOpen] = useState(false);
   const [isSubmittingConsent, setIsSubmittingConsent] = useState(false);
@@ -165,8 +169,17 @@ export const App: React.FC = () => {
 
   const cartTotal = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
 
+  const handleFulfillmentChange = (nextFulfillment: 'PICKUP' | 'DELIVERY') => {
+    setFulfillment(nextFulfillment);
+    setCheckoutError(null);
+    if (nextFulfillment === 'PICKUP') {
+      setPaymentMethod('E_WALLET');
+    }
+  };
+
   const handleMobileCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
+    setCheckoutError(null);
     if (!user) {
       setIsCartOpen(false);
       navigate('/login', { state: { from: location } });
@@ -175,12 +188,14 @@ export const App: React.FC = () => {
 
     if (cart.length === 0) return;
 
+    const effectiveMethod: 'CASH' | 'E_WALLET' = fulfillment === 'PICKUP' ? 'E_WALLET' : paymentMethod;
+
     try {
       await createOrderMutation.mutateAsync({
         items: cart.map((i) => ({ product_id: i.id, qty: i.qty })),
         fulfillment,
         address: fulfillment === 'DELIVERY' ? address : undefined,
-        method: paymentMethod,
+        method: effectiveMethod,
         expected_total: cartTotal.toFixed(2),
         request_key: crypto.randomUUID()
       });
@@ -193,7 +208,7 @@ export const App: React.FC = () => {
         setIsConsentModalOpen(true);
         return;
       }
-      alert(err.message || 'Checkout failed');
+      setCheckoutError(getFriendlyErrorMessage(err));
     }
   };
 
@@ -348,7 +363,13 @@ export const App: React.FC = () => {
             className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs transition-opacity"
             onClick={() => setIsCartOpen(false)}
           />
-          <div className="relative w-full max-w-md bg-white shadow-2xl flex flex-col h-full z-10 animate-in slide-in-from-right duration-200">
+          <div
+            className="relative w-full max-w-md bg-white shadow-2xl flex flex-col h-full z-10 animate-in slide-in-from-right duration-200"
+            style={{
+              paddingTop: 'var(--safe-top)',
+              paddingBottom: 'var(--safe-bottom)'
+            }}
+          >
             <div className="p-4 bg-[#0b3d91] text-white flex justify-between items-center shadow-md">
               <div className="flex items-center gap-2">
                 <ShoppingCart className="w-5 h-5 text-[#90caf9]" />
@@ -375,7 +396,7 @@ export const App: React.FC = () => {
                   <div key={item.id} className="py-3 flex justify-between items-center">
                     <div>
                       <h4 className="font-semibold text-sm text-gray-800">{item.name}</h4>
-                      <p className="text-xs text-[#1565c0] font-bold mt-0.5">₱{item.price.toFixed(2)}</p>
+                      <p className="text-xs text-[#1565c0] font-bold mt-0.5">{formatPeso(item.price)}</p>
                     </div>
                     <div className="flex items-center gap-2 border border-gray-200 rounded-lg p-1 bg-gray-50">
                       <button
@@ -403,7 +424,7 @@ export const App: React.FC = () => {
               <form onSubmit={handleMobileCheckout} className="p-4 bg-gray-50 border-t border-gray-200 space-y-3">
                 <div className="flex justify-between items-center text-sm font-bold text-gray-900 border-b border-gray-200 pb-2">
                   <span>Total Amount:</span>
-                  <span className="text-[#1565c0] text-base">₱{cartTotal.toFixed(2)}</span>
+                  <span className="text-[#1565c0] text-base">{formatPeso(cartTotal)}</span>
                 </div>
 
                 <div className="space-y-1">
@@ -411,8 +432,8 @@ export const App: React.FC = () => {
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      onClick={() => setFulfillment('PICKUP')}
-                      className={`py-2 text-xs font-bold rounded-lg border transition-all ${
+                      onClick={() => handleFulfillmentChange('PICKUP')}
+                      className={`py-2 min-h-[42px] text-xs font-bold rounded-lg border transition-all ${
                         fulfillment === 'PICKUP'
                           ? 'bg-[#1565c0] text-white border-[#1565c0] shadow-sm'
                           : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
@@ -422,8 +443,8 @@ export const App: React.FC = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setFulfillment('DELIVERY')}
-                      className={`py-2 text-xs font-bold rounded-lg border transition-all ${
+                      onClick={() => handleFulfillmentChange('DELIVERY')}
+                      className={`py-2 min-h-[42px] text-xs font-bold rounded-lg border transition-all ${
                         fulfillment === 'DELIVERY'
                           ? 'bg-[#1565c0] text-white border-[#1565c0] shadow-sm'
                           : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
@@ -448,24 +469,93 @@ export const App: React.FC = () => {
                   </div>
                 )}
 
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-gray-600 uppercase tracking-wider">Payment Method</label>
-                  <select
-                    value={paymentMethod}
-                    onChange={(e: any) => setPaymentMethod(e.target.value)}
-                    className="w-full text-xs p-2 rounded-lg border border-gray-300 bg-white focus:outline-none focus:border-[#1565c0]"
+                <div className="space-y-1.5">
+                  <span id="cart-payment-method-label" className="block text-[11px] font-bold text-gray-600 uppercase tracking-wider">
+                    Payment Method
+                  </span>
+                  <div
+                    role="radiogroup"
+                    aria-labelledby="cart-payment-method-label"
+                    aria-describedby={fulfillment === 'PICKUP' ? 'pickup-ewallet-note' : undefined}
+                    className="grid grid-cols-2 gap-2"
                   >
-                    <option value="CASH">Cash</option>
-                    <option value="E_WALLET">E-Wallet</option>
-                  </select>
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={paymentMethod === 'E_WALLET'}
+                      onClick={() => {
+                        setPaymentMethod('E_WALLET');
+                        setCheckoutError(null);
+                      }}
+                      className={`min-h-[44px] px-3 py-2 text-left rounded-lg border transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1565c0] ${
+                        paymentMethod === 'E_WALLET'
+                          ? 'bg-[#1565c0] text-white border-[#1565c0] shadow-sm'
+                          : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="text-xs font-bold">E-Wallet</div>
+                      <div className={`text-[10px] ${paymentMethod === 'E_WALLET' ? 'text-blue-100' : 'text-gray-500'}`}>
+                        GCash / Maya QR
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={paymentMethod === 'CASH'}
+                      aria-disabled={fulfillment === 'PICKUP'}
+                      disabled={fulfillment === 'PICKUP'}
+                      onClick={() => {
+                        if (fulfillment === 'PICKUP') return;
+                        setPaymentMethod('CASH');
+                        setCheckoutError(null);
+                      }}
+                      className={`min-h-[44px] px-3 py-2 text-left rounded-lg border transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1565c0] ${
+                        fulfillment === 'PICKUP'
+                          ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-70'
+                          : paymentMethod === 'CASH'
+                          ? 'bg-[#1565c0] text-white border-[#1565c0] shadow-sm cursor-pointer'
+                          : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 cursor-pointer'
+                      }`}
+                    >
+                      <div className="text-xs font-bold">Cash</div>
+                      <div
+                        className={`text-[10px] ${
+                          fulfillment === 'PICKUP'
+                            ? 'text-gray-400'
+                            : paymentMethod === 'CASH'
+                            ? 'text-blue-100'
+                            : 'text-gray-500'
+                        }`}
+                      >
+                        {fulfillment === 'PICKUP' ? 'Delivery only' : 'Pay on delivery'}
+                      </div>
+                    </button>
+                  </div>
+
+                  {fulfillment === 'PICKUP' && (
+                    <p id="pickup-ewallet-note" className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 font-medium">
+                      Station pickup orders require E-Wallet payment (GCash / Maya). Cash is available for Delivery only.
+                    </p>
+                  )}
                 </div>
+
+                {checkoutError && (
+                  <div
+                    role="alert"
+                    className="p-2.5 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg font-medium flex items-start gap-2"
+                  >
+                    <AlertTriangle className="w-4 h-4 shrink-0 text-red-600 mt-0.5" />
+                    <span>{checkoutError}</span>
+                  </div>
+                )}
 
                 <button
                   type="submit"
                   disabled={createOrderMutation.isPending}
-                  className="btn btn-primary w-full py-2.5 font-bold shadow-md flex items-center justify-center gap-2 text-sm"
+                  className="btn btn-primary w-full py-2.5 min-h-[44px] font-bold shadow-md flex items-center justify-center gap-2 text-sm"
                 >
-                  {createOrderMutation.isPending ? 'Placing Order...' : `Place Order (₱${cartTotal.toFixed(2)})`}
+                  {createOrderMutation.isPending ? 'Placing Order...' : `Place Order (${formatPeso(cartTotal)})`}
                 </button>
               </form>
             )}
@@ -491,7 +581,7 @@ export const App: React.FC = () => {
                 items: cart.map((i) => ({ product_id: i.id, qty: i.qty })),
                 fulfillment,
                 address: fulfillment === 'DELIVERY' ? address : undefined,
-                method: paymentMethod,
+                method: fulfillment === 'PICKUP' ? 'E_WALLET' : paymentMethod,
                 expected_total: cartTotal.toFixed(2),
                 request_key: crypto.randomUUID()
               });
@@ -500,7 +590,7 @@ export const App: React.FC = () => {
               navigate('/orders');
             }
           } catch (consentErr: any) {
-            alert(consentErr.message || 'Failed to record consent');
+            setCheckoutError(getFriendlyErrorMessage(consentErr));
           } finally {
             setIsSubmittingConsent(false);
           }
@@ -510,7 +600,10 @@ export const App: React.FC = () => {
 
       {/* Non-Blocking OTA Update Notification Banner */}
       {updateReady && (
-        <div className="fixed bottom-4 left-4 right-4 md:left-auto md:right-6 md:w-96 z-50 p-4 bg-[#0b3d91] text-white rounded-2xl shadow-2xl border border-blue-400/30 flex items-start gap-3 animate-in slide-in-from-bottom-3 duration-200">
+        <div
+          className="fixed left-4 right-4 md:left-auto md:right-6 md:w-96 z-50 p-4 bg-[#0b3d91] text-white rounded-2xl shadow-2xl border border-blue-400/30 flex items-start gap-3 animate-in slide-in-from-bottom-3 duration-200"
+          style={{ bottom: 'calc(1rem + var(--safe-bottom))' }}
+        >
           <Sparkles className="w-5 h-5 text-amber-300 flex-shrink-0 mt-0.5" />
           <div className="flex-1 text-xs">
             <div className="font-bold text-sm">Update Ready (v{updateReady.version})</div>
@@ -538,14 +631,23 @@ export const App: React.FC = () => {
       )}
 
       {/* Blocking Native Version Upgrade Screen */}
-      {nativeUpgradeRequired && (
-        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="card max-w-md w-full bg-white p-6 rounded-2xl shadow-2xl text-center space-y-4">
-            <div className="w-12 h-12 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center mx-auto">
-              <AlertTriangle className="w-6 h-6" />
-            </div>
-            <h2 className="text-lg font-bold text-gray-900">App Update Required</h2>
-            <p className="text-xs text-gray-600 leading-relaxed">
+      <Modal
+        isOpen={Boolean(nativeUpgradeRequired)}
+        hideCloseButton
+        closeOnBackdrop={false}
+        closeOnEsc={false}
+        size="md"
+        title="App Update Required"
+        icon={
+          <div className="w-9 h-9 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center">
+            <AlertTriangle className="w-5 h-5" />
+          </div>
+        }
+        bodyClassName="text-center space-y-4"
+      >
+        {nativeUpgradeRequired && (
+          <>
+            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
               This version of the AquaLicious mobile app is no longer supported. Please download and install the latest official APK to continue.
             </p>
             <a
@@ -556,9 +658,9 @@ export const App: React.FC = () => {
             >
               Download Latest App
             </a>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
     </div>
   );
 };

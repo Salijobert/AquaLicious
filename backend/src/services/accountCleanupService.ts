@@ -1,6 +1,7 @@
 import admin from 'firebase-admin';
 import { prisma, config } from '../config/index.js';
 import { Mailer } from './mailer.js';
+import { buildFirebaseVerificationLink } from '../utils/verificationLink.js';
 
 const ADVISORY_LOCK_ID = 8492019;
 
@@ -313,16 +314,12 @@ export class AccountCleanupService {
 
         console.log(`[AccountCleanup] Queuing ${reminderStage} reminder for user #${user.id} (${user.email}), ${daysRemaining} days remaining.`);
 
-        // Generate Firebase verification link
-        let verificationLink = `${config.frontendUrl}/verify-email-complete?mode=verifyEmail&uid=${encodeURIComponent(user.firebaseUid)}`;
-        if (admin.apps.length > 0) {
-          try {
-            verificationLink = await admin.auth().generateEmailVerificationLink(user.email, {
-              url: `${config.frontendUrl}/verify-email-complete`
-            });
-          } catch (linkErr: any) {
-            console.warn(`[AccountCleanup] Link generation warning for ${user.email}:`, linkErr.message);
-          }
+        // Generate Firebase verification link pointing to clean frontend verification route
+        let verificationLink = `${config.frontendUrl}/verify-email-complete?mode=verifyEmail`;
+        try {
+          verificationLink = await buildFirebaseVerificationLink(user.email, user.name);
+        } catch (linkErr: any) {
+          console.warn(`[AccountCleanup] Link generation warning for ${user.email}:`, linkErr.message);
         }
 
         await Mailer.sendVerificationReminder({

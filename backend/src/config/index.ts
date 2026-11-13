@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
+import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { PrismaClient } from '@prisma/client';
 import admin from 'firebase-admin';
@@ -46,6 +47,33 @@ if (isProduction) {
       'FATAL CONFIGURATION ERROR: In production, ADMIN_FIREBASE_UIDS (or ADMIN_FIREBASE_UID) environment variable is required with at least one authorized UID. Server refusing to start.'
     );
   }
+  if (process.env.ALLOW_LOCAL_AUTH_FALLBACK === 'true') {
+    throw new Error(
+      'FATAL CONFIGURATION ERROR: ALLOW_LOCAL_AUTH_FALLBACK=true is strictly forbidden in production. Server refusing to start.'
+    );
+  }
+}
+
+function resolveBuildId(): string {
+  if (process.env.BUILD_ID && process.env.BUILD_ID.trim()) {
+    return process.env.BUILD_ID.trim();
+  }
+  try {
+    const pkgPath = path.resolve(__dirname, '../../package.json');
+    const pkg = fs.existsSync(pkgPath) ? JSON.parse(fs.readFileSync(pkgPath, 'utf8')) : { version: '2.0.0' };
+    let gitShort = 'unknown';
+    try {
+      gitShort = execSync('git rev-parse --short HEAD', {
+        cwd: path.resolve(__dirname, '../..'),
+        stdio: ['ignore', 'pipe', 'ignore']
+      }).toString('utf8').trim();
+    } catch {
+      // git binary or .git absent
+    }
+    return `${pkg.version || '2.0.0'}-${gitShort}`;
+  } catch {
+    return '2.0.0';
+  }
 }
 
 export const config = {
@@ -72,7 +100,14 @@ export const config = {
   // Default to true (safe dry-run) when CLEANUP_DRY_RUN is unset, even in production
   cleanupDryRun: process.env.CLEANUP_DRY_RUN !== undefined
     ? process.env.CLEANUP_DRY_RUN === 'true'
-    : true
+    : true,
+  // Default to true (safe dry-run) when AUTO_CANCEL_DRY_RUN is unset, even in production
+  autoCancelDryRun: process.env.AUTO_CANCEL_DRY_RUN !== undefined
+    ? process.env.AUTO_CANCEL_DRY_RUN === 'true'
+    : true,
+  unpaidOrderTtlMinutes: Math.max(1, parseInt(process.env.UNPAID_ORDER_TTL_MINUTES || '120', 10) || 120),
+  maxUnpaidPendingOrders: Math.max(1, parseInt(process.env.MAX_UNPAID_PENDING_ORDERS || '3', 10) || 3),
+  buildId: resolveBuildId()
 };
 
 // Singleton Prisma Client
@@ -150,12 +185,35 @@ export interface TokenClaims {
  * In production, validates strictly against Google Firebase Auth.
  * Test-auth HMAC verification is completely disabled in production.
  */
+function formatAuthError(fbErr: any, fallbackMessage: string): { message: string; code: string } {
+  const code = fbErr?.code || '';
+  const msg = typeof fbErr?.message === 'string' ? fbErr.message : '';
+  if (code === 'auth/id-token-expired' || code === 'auth/id-token-revoked') {
+    return { message: 'Your session has expired. Please sign in again.', code: 'AUTH_TOKEN_INVALID' };
+  }
+  if (
+    msg.includes('no "kid" claim') ||
+    msg.includes('firebase.google.com/docs') ||
+    msg.includes('Firebase ID token') ||
+    msg.includes('Decoding Firebase ID token failed')
+  ) {
+    return { message: 'Your session token is invalid or expired. Please sign in again.', code: 'AUTH_TOKEN_INVALID' };
+  }
+  return { message: msg || fallbackMessage, code: 'AUTH_TOKEN_INVALID' };
+}
+
+function makeAuthError(formatted: { message: string; code: string }): Error {
+  const err = new Error(formatted.message);
+  (err as any).code = formatted.code;
+  return err;
+}
+
 export async function verifyToken(idToken: string): Promise<TokenClaims> {
   if (!idToken) {
-    throw new Error('No token provided');
+    throw makeAuthError({ message: 'No token provided', code: 'AUTH_TOKEN_INVALID' });
   }
 
-  // 1. Try Firebase Admin native verification if configured
+  // 1. Try Firebase Admin native verification
   try {
     const decoded = await admin.auth().verifyIdToken(idToken, true);
     return {
@@ -165,12 +223,12 @@ export async function verifyToken(idToken: string): Promise<TokenClaims> {
       email: decoded.email
     };
   } catch (fbErr: any) {
-    // When local fallback is not explicitly enabled, fail immediately: NO test token fallback
-    if (process.env.ALLOW_LOCAL_AUTH_FALLBACK !== 'true') {
-      throw new Error(fbErr.message || 'Invalid or expired Firebase ID token');
+    // Strictly disabled in production or whenever test-only local fallback is not enabled
+    if (config.nodeEnv !== 'test' || process.env.ALLOW_LOCAL_AUTH_FALLBACK !== 'true') {
+      throw makeAuthError(formatAuthError(fbErr, 'Invalid or expired Firebase ID token'));
     }
 
-    // 2. ONLY for local development / test environments when explicitly allowed
+    // 2. Test environment ONLY (NODE_ENV === 'test' && ALLOW_LOCAL_AUTH_FALLBACK === 'true')
     try {
       const decoded = jwt.verify(idToken, config.jwtSecret) as TokenClaims;
       if (decoded && decoded.uid) {
@@ -181,30 +239,12 @@ export async function verifyToken(idToken: string): Promise<TokenClaims> {
           email: decoded.email
         };
       }
-    } catch {
-      throw new Error(fbErr.message || 'Invalid authentication token');
+    } catch (jwtErr: any) {
+      if (jwtErr?.name === 'TokenExpiredError') {
+        throw makeAuthError({ message: 'Your session has expired. Please sign in again.', code: 'AUTH_TOKEN_INVALID' });
+      }
+      throw makeAuthError(formatAuthError(fbErr, 'Invalid authentication token'));
     }
-    throw new Error(fbErr.message || 'Invalid Firebase ID token');
+    throw makeAuthError(formatAuthError(fbErr, 'Invalid Firebase ID token'));
   }
-}
-
-/**
- * Creates a test Firebase-compatible ID token ONLY for automated test environments.
- * Strictly throws if called in production or without ALLOW_LOCAL_AUTH_FALLBACK=true.
- */
-export function generateTestToken(claims: TokenClaims): string {
-  if (process.env.ALLOW_LOCAL_AUTH_FALLBACK !== 'true') {
-    throw new Error('FATAL: generateTestToken is strictly disabled unless ALLOW_LOCAL_AUTH_FALLBACK=true');
-  }
-  return jwt.sign(
-    {
-      iss: `https://securetoken.google.com/${config.firebaseProjectId}`,
-      aud: config.firebaseProjectId,
-      auth_time: Math.floor(Date.now() / 1000),
-      sub: claims.uid,
-      ...claims
-    },
-    config.jwtSecret,
-    { expiresIn: '2h' }
-  );
 }

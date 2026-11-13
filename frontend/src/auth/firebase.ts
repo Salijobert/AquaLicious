@@ -1,5 +1,13 @@
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
-import { getAuth, Auth, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, signOut } from 'firebase/auth';
+import {
+  getAuth,
+  Auth,
+  signInWithEmailAndPassword,
+  signInWithCustomToken,
+  createUserWithEmailAndPassword,
+  signOut,
+  onIdTokenChanged
+} from 'firebase/auth';
 import { resolver } from '../api/multiServerResolver.js';
 
 // Firebase Web SDK Configuration
@@ -22,6 +30,35 @@ if (getApps().length === 0) {
 
 export const auth: Auth = getAuth(app);
 
+// Keep MultiServerResolver equipped to auto-refresh active Firebase ID tokens
+resolver.setTokenRefresher(async (forceRefresh = false) => {
+  if (!auth.currentUser) return null;
+  try {
+    const idToken = await auth.currentUser.getIdToken(forceRefresh);
+    if (idToken) {
+      resolver.setToken(idToken);
+    }
+    return idToken;
+  } catch {
+    return null;
+  }
+});
+
+export function onFirebaseIdTokenChanged(cb: (token: string | null) => void): () => void {
+  return onIdTokenChanged(auth, async (fbUser) => {
+    if (!fbUser) return;
+    try {
+      const idToken = await fbUser.getIdToken();
+      if (idToken) {
+        resolver.setToken(idToken);
+        cb(idToken);
+      }
+    } catch {
+      // ignore background refresh error
+    }
+  });
+}
+
 export interface AuthProfile {
   id: number;
   name: string;
@@ -32,8 +69,9 @@ export interface AuthProfile {
 }
 
 /**
- * Authenticates user.
- * Supports Firebase Web SDK sign-in and local API login.
+ * Authenticates user via Firebase Web SDK.
+ * Resolves username -> email first when needed, then authenticates with Firebase
+ * and fetches the application profile from PostgreSQL.
  */
 export async function loginUser(usernameOrEmail: string, password: string): Promise<{ token: string; user: AuthProfile }> {
   const cleanInput = (usernameOrEmail || '').trim();
@@ -44,24 +82,7 @@ export async function loginUser(usernameOrEmail: string, password: string): Prom
     throw new Error('Please enter your password.');
   }
 
-  // 1. Direct admin login via Node/Express cluster
-  if (cleanInput.toLowerCase() === 'admin') {
-    try {
-      const res = await resolver.request<{ token: string; user: AuthProfile }>('/api/auth', {
-        method: 'POST',
-        data: {
-          username: 'admin',
-          password
-        }
-      });
-      resolver.setToken(res.token);
-      return res;
-    } catch (err: any) {
-      throw new Error(err.message || 'Invalid username or password.');
-    }
-  }
-
-  // 2. Resolve email for username or email
+  // 1. Resolve email when user entered a username (Admin or Customer)
   let emailToUse = cleanInput;
   if (!cleanInput.includes('@')) {
     try {
@@ -75,57 +96,79 @@ export async function loginUser(usernameOrEmail: string, password: string): Prom
       if (resolveRes && resolveRes.email) {
         emailToUse = resolveRes.email;
       } else {
-        throw new Error('No account found with that username.');
+        throw new Error('No account found with that username. Please check your username or use your registered email address.');
       }
-    } catch {
-      throw new Error('No account found with that username. Please check your username or use your registered email address.');
+    } catch (resolveErr: any) {
+      const status = resolveErr?.status;
+      if (status === 404) {
+        throw new Error('No account found with that username. Please check your username or use your registered email address.');
+      }
+      if (status === 429) {
+        throw new Error('Too many login attempts. Please wait a few minutes before trying again.');
+      }
+      if (status === 503 || (typeof status === 'number' && status >= 500) || resolveErr?.name === 'TypeError' || resolveErr?.name === 'TimeoutError') {
+        throw new Error('Unable to reach the server right now. Please check your connection and try again shortly.');
+      }
+      throw new Error(resolveErr?.message || 'Unable to verify username right now. Please try again.');
     }
   }
 
-  // 3. Authenticate with Google Firebase Web SDK
+  // 2. Authenticate strictly with Google Firebase Web SDK
+  let firebaseToken = '';
   try {
     const userCredential = await signInWithEmailAndPassword(auth, emailToUse.toLowerCase(), password);
-    const token = await userCredential.user.getIdToken();
-    resolver.setToken(token);
-
-    // Fetch profile from PostgreSQL backend
-    const profileRes = await resolver.request<any>('/api/auth');
-    return { token, user: profileRes };
+    firebaseToken = await userCredential.user.getIdToken();
   } catch (fbErr: any) {
-    // Fallback to backend local auth if Firebase network fails (offline development / automated test suite)
-    try {
-      const localRes = await resolver.request<{ token: string; user: AuthProfile }>('/api/auth', {
-        method: 'POST',
-        data: {
-          username: cleanInput,
-          password
-        }
-      });
-      if (localRes && localRes.token) {
-        resolver.setToken(localRes.token);
-        return localRes;
-      }
-    } catch {
-      // Ignore fallback failure and continue to standard error formatting
-    }
-
-    let message = 'Invalid username/email or password.';
+    let message = 'Invalid email or password. Please verify your credentials.';
     if (
-      fbErr.code === 'auth/user-not-found' ||
-      fbErr.code === 'auth/wrong-password' ||
-      fbErr.code === 'auth/invalid-credential'
+      fbErr?.code === 'auth/user-not-found' ||
+      fbErr?.code === 'auth/wrong-password' ||
+      fbErr?.code === 'auth/invalid-credential'
     ) {
       message = 'Invalid email or password. Please verify your credentials.';
-    } else if (fbErr.code === 'auth/too-many-requests') {
-      message = 'Access temporarily disabled due to multiple failed login attempts. Please reset your password or try again later.';
-    } else if (fbErr.code === 'auth/user-disabled') {
-      message = 'This user account has been disabled.';
-    } else if (fbErr.code === 'auth/network-request-failed') {
-      message = 'Network error. Please check your internet connection.';
-    } else if (fbErr.message) {
+    } else if (fbErr?.code === 'auth/too-many-requests') {
+      message = 'Too many failed login attempts. Please wait a few minutes or reset your password before trying again.';
+    } else if (fbErr?.code === 'auth/user-disabled') {
+      message = 'This user account has been disabled. Please contact the station.';
+    } else if (fbErr?.code === 'auth/network-request-failed') {
+      message = 'Network error while reaching authentication service. Please check your internet connection.';
+    } else if (fbErr?.message) {
       message = fbErr.message;
     }
     throw new Error(message);
+  }
+
+  // 3. Fetch profile from PostgreSQL backend with separate error mapping
+  resolver.setToken(firebaseToken);
+  try {
+    const profileRes = await resolver.request<any>('/api/auth');
+    return { token: firebaseToken, user: profileRes };
+  } catch (apiErr: any) {
+    const status = apiErr?.status;
+    const code = apiErr?.code;
+    const msg = apiErr?.message || '';
+
+    if (status === 401 || code === 'AUTH_TOKEN_INVALID' || msg.includes('no "kid" claim')) {
+      await logoutUser().catch(() => {});
+      throw new Error('Your session has expired or is invalid. Please sign in again.');
+    }
+    if (code === 'EMAIL_NOT_VERIFIED' || code === 'EMAIL_VERIFICATION_REQUIRED_FOR_LINK') {
+      throw new Error('Please verify your email address before signing in. Check your inbox for the verification link.');
+    }
+    if (code === 'CONSENT_REQUIRED') {
+      throw new Error('Data Privacy Act consent is required before accessing your account.');
+    }
+    if (code === 'FIREBASE_UID_MISMATCH') {
+      await logoutUser().catch(() => {});
+      throw new Error('Your account could not be matched to this sign-in method. Please contact support.');
+    }
+    if (status === 429) {
+      throw new Error('Too many requests. Please wait a few minutes before trying again.');
+    }
+    if (status === 503 || code === 'DATABASE_UNAVAILABLE' || (typeof status === 'number' && status >= 500) || apiErr?.name === 'TypeError' || apiErr?.name === 'TimeoutError') {
+      throw new Error('Server is temporarily unavailable. Please try again in a moment.');
+    }
+    throw new Error(msg || 'Unable to load your account profile. Please try again.');
   }
 }
 
@@ -140,25 +183,18 @@ export async function registerCustomer(
   let createdFirebaseUser: any = null;
   const targetEmail = (email || (username.includes('@') ? username : '')).trim().toLowerCase();
 
-  // If registering with an email address, create Firebase credentials
+  // If registering with an email address, create Firebase credentials (backend sends the single verification email)
   if (targetEmail) {
     try {
       const cred = await createUserWithEmailAndPassword(auth, targetEmail, password);
       createdFirebaseUser = cred.user;
-      try {
-        await sendEmailVerification(cred.user, {
-          url: 'https://aqualicious.vercel.app/verify-email-complete'
-        });
-      } catch (verifyErr: any) {
-        console.warn('Firebase sendEmailVerification notice:', verifyErr.message);
-      }
     } catch (fbErr: any) {
       console.warn('Firebase user creation fallback:', fbErr.message);
     }
   }
 
   try {
-    const res = await resolver.request<{ token: string; user: AuthProfile }>('/api/auth', {
+    const res = await resolver.request<{ token: string; tokenType?: string; user: AuthProfile }>('/api/auth', {
       method: 'POST',
       data: {
         action: 'register',
@@ -171,8 +207,20 @@ export async function registerCustomer(
       }
     });
 
-    resolver.setToken(res.token);
-    return res;
+    let finalToken = res.token;
+    if (createdFirebaseUser) {
+      try {
+        finalToken = await createdFirebaseUser.getIdToken();
+      } catch {
+        // Keep backend-issued token if Firebase getIdToken fails offline
+      }
+    } else if (res.tokenType === 'firebase_custom' && res.token) {
+      const customCred = await signInWithCustomToken(auth, res.token);
+      finalToken = await customCred.user.getIdToken();
+    }
+
+    resolver.setToken(finalToken);
+    return { token: finalToken, user: res.user };
   } catch (err) {
     // If backend step fails, cleanup the orphaned Firebase user
     if (createdFirebaseUser) {
@@ -198,20 +246,12 @@ export async function logoutUser() {
 }
 
 /**
- * Re-authenticates Administrator for void approval.
+ * Re-authenticates Administrator via Firebase for void approval.
  */
 export async function reauthenticateAdmin(adminUsername: string, adminPassword: string): Promise<string> {
-  const res = await resolver.request<{ token: string; user: AuthProfile }>('/api/auth', {
-    method: 'POST',
-    data: {
-      username: adminUsername,
-      password: adminPassword
-    }
-  });
-
-  if (res.user.role !== 'Administrator') {
+  const result = await loginUser(adminUsername, adminPassword);
+  if (result.user.role !== 'Administrator') {
     throw new Error('User is not an authorized Administrator');
   }
-
-  return res.token;
+  return result.token;
 }

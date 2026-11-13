@@ -5,6 +5,7 @@ import path from 'node:path';
 import './safety_guard.mjs';
 import { chromium } from '../tools/node_modules/playwright/index.mjs';
 import { PrismaClient } from '../backend/node_modules/@prisma/client/index.js';
+import { uiTestLogin } from './helpers/testAuth.mjs';
 
 const baseUrl = process.env.AQ_TEST_WEB || 'http://127.0.0.1:8090';
 const apiBase = `${baseUrl}/api`;
@@ -113,7 +114,7 @@ try {
   // Ensure test products have sufficient stock
   await prisma.product.updateMany({ where: { id: 1 }, data: { stock: 100 } });
 
-  const { generateTestToken } = await import('../backend/dist/config/index.js');
+  const { generateTestToken } = await import('./helpers/testAuth.mjs');
   const tokenA = generateTestToken({ uid: userA.firebaseUid, email: userA.email, role: 'CUSTOMER', email_verified: true });
   const tokenB = generateTestToken({ uid: userB.firebaseUid, email: userB.email, role: 'CUSTOMER', email_verified: true });
 
@@ -243,7 +244,8 @@ try {
   // Cancelled order cannot show COMPLETED
   const cancelOrder = await apiReq('/api/orders', {
     items: [{ product_id: 1, qty: 1 }],
-    fulfillment: 'PICKUP',
+    fulfillment: 'DELIVERY',
+    address: '123 Crystal Springs Road',
     method: 'CASH',
     request_key: randomUUID()
   }, 'POST', tokenA);
@@ -422,12 +424,9 @@ try {
   // UI Test 1: Customer View (Mobile 390px viewport, Real Names, Pay Now Modal, Mock QR, Demo Notice)
   const custContext = await createContext({ viewport: { width: 390, height: 844 } });
   const custPage = await custContext.newPage();
-  await custPage.goto(`${baseUrl}/login`);
-  await custPage.fill('input[name="username"]', userA.username);
-  await custPage.fill('input[name="password"]', adminPassword);
-  await custPage.click('button[type="submit"]');
-  await custPage.waitForFunction(() => window.location.pathname === '/', { timeout: 10000 });
+  await uiTestLogin(custPage, baseUrl, userA.username, adminPassword, '/');
   await custPage.goto(`${baseUrl}/orders`);
+  await custPage.locator('#splash').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
   await custPage.waitForSelector('.order', { timeout: 10000 });
 
   // Verify Customer name does NOT say "Guest"
@@ -445,29 +444,26 @@ try {
   await payNowBtn.click();
   await custPage.waitForSelector('text=Demo QR — not a real payment', { timeout: 5000 });
 
-  const modalText = await custPage.innerText('.modal-box');
+  const modalText = await custPage.innerText('.aq-modal-card');
   report(modalText.includes('Demo QR — not a real payment'), 'Pay Now modal displays Demo QR notice');
   report(modalText.toLowerCase().includes('upload proof of payment'), 'Pay Now modal has upload proof control');
 
   // Submit button is disabled before file selection
-  const submitProofBtn = custPage.locator('.modal-box button:has-text("Submit Proof")');
+  const submitProofBtn = custPage.locator('.aq-modal-card button:has-text("Submit Proof")');
   report(await submitProofBtn.isDisabled(), 'Submit Proof button is disabled until valid file is selected');
 
   await custPage.screenshot({ path: 'tests/screenshots/customer_pay_now_modal.png' });
 
   // Close modal via Cancel button
-  await custPage.click('.modal-box button:has-text("Cancel")');
+  await custPage.click('.aq-modal-card button:has-text("Cancel")');
   await custPage.waitForTimeout(300);
 
   // UI Test 2: Admin Orders Page (Mode of Payment, Real Names, Walk-in, Gating Notice, View Payment button)
   const adminContext = await createContext({ viewport: { width: 1280, height: 800 } });
   const adminPage = await adminContext.newPage();
-  await adminPage.goto(`${baseUrl}/login`);
-  await adminPage.fill('input[name="username"]', adminUsername);
-  await adminPage.fill('input[name="password"]', adminPassword);
-  await adminPage.click('button[type="submit"]');
-  await adminPage.waitForFunction(() => window.location.pathname.includes('/dashboard'), { timeout: 10000 });
+  await uiTestLogin(adminPage, baseUrl, adminUsername, adminPassword, '/dashboard');
   await adminPage.goto(`${baseUrl}/orders`);
+  await adminPage.locator('#splash').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
   await adminPage.waitForSelector('.order', { timeout: 10000 });
 
   const adminOrdersText = await adminPage.innerText('.orders-list-container');
@@ -485,7 +481,7 @@ try {
   const viewPaymentBtn = adminPage.locator('button:has-text("View Payment")').first();
   if ((await viewPaymentBtn.count()) > 0) {
     await viewPaymentBtn.click();
-    await adminPage.waitForSelector('.modal-box text=Payment Proof Verification', { timeout: 5000 }).catch(() => {});
+    await adminPage.waitForSelector('.aq-modal-card >> text=E-Wallet Payment Verification', { timeout: 5000 }).catch(() => {});
     await adminPage.screenshot({ path: 'tests/screenshots/admin_view_payment_modal.png' });
     await adminPage.keyboard.press('Escape');
     await adminPage.waitForTimeout(300);

@@ -1,7 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useOrders, usePatchOrder } from '../api/client.js';
+import { useSearchParams } from 'react-router-dom';
+import { Modal } from '../components/Modal.js';
+import { useOrdersInfinite, usePatchOrder, usePendingOrdersSummary } from '../api/client.js';
+import { resolver } from '../api/multiServerResolver.js';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../auth/AuthContext.js';
+import { COPY } from '../constants/copy.js';
 import {
   Truck,
   QrCode,
@@ -22,22 +26,102 @@ import {
 import { VirtualCardList, OrderCardSkeleton } from '../components/virtual/index.js';
 import { AdminPageHeader } from '../components/AdminPageHeader.js';
 import { MockQrDisplay } from '../utils/mockQr.js';
+import { formatPeso } from '../utils/currency.js';
 import {
   formatPaymentMethod,
   formatPaymentStatus,
   formatOrderStatus,
   formatFulfillment,
+  formatCashPaymentLabel,
+  formatManilaTimeOnly,
+  formatManilaTimestamp,
   getPaymentGatingNote,
   getAllowedOrderActions,
-  getFriendlyErrorMessage
+  getFriendlyErrorMessage,
+  isOrderPending
 } from '../utils/orderLabels.js';
+
+type OrderFilterType = 'all' | 'pending' | 'completed' | 'cancelled';
+
+const CANCEL_REASONS = [
+  'Changed my mind',
+  'Ordered by mistake',
+  'Wrong items',
+  'Other'
+] as const;
 
 export const OrdersPage: React.FC = () => {
   const { role } = useAuth();
   const isAdmin = role === 'Administrator';
-  const { data: orders, error } = useOrders();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rawFilterParam = (searchParams.get('filter') || 'all').toLowerCase();
+  const activeFilter: OrderFilterType =
+    rawFilterParam === 'pending' || rawFilterParam === 'completed' || rawFilterParam === 'cancelled'
+      ? rawFilterParam
+      : 'all';
+  const highlightedOrderId = Number(searchParams.get('orderId')) || null;
+
+  const apiStatusFilter = activeFilter === 'all' ? 'ALL' : activeFilter.toUpperCase();
+  const {
+    data: paginatedData,
+    error,
+    isLoading,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage
+  } = useOrdersInfinite({ status: apiStatusFilter, limit: 40 });
+  const { data: pendingSummary } = usePendingOrdersSummary(1, isAdmin);
   const patchOrderMutation = usePatchOrder();
   const queryClient = useQueryClient();
+
+  const orders = paginatedData ? paginatedData.pages.flatMap((page) => page.items) : undefined;
+  const serverCounts = paginatedData?.pages?.[0]?.counts;
+
+  const setFilter = (next: OrderFilterType) => {
+    const nextParams = new URLSearchParams(searchParams);
+    if (next !== 'all') {
+      nextParams.set('filter', next);
+    } else {
+      nextParams.delete('filter');
+      nextParams.delete('orderId');
+    }
+    setSearchParams(nextParams, { replace: true });
+  };
+
+  const pendingOrdersCount = isAdmin
+    ? (pendingSummary?.count ?? serverCounts?.pending ?? (Array.isArray(orders) ? orders.filter(isOrderPending).length : 0))
+    : (serverCounts?.pending ?? (Array.isArray(orders) ? orders.filter(isOrderPending).length : 0));
+  const displayedOrders = orders;
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const sentinel = loadMoreRef.current;
+    if (!sentinel || !hasNextPage || isFetchingNextPage) return;
+    if (typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage();
+        }
+      },
+      { rootMargin: '200px' }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  useEffect(() => {
+    if (!highlightedOrderId || !Array.isArray(displayedOrders) || displayedOrders.length === 0) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      const el = document.getElementById(`order-card-${highlightedOrderId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [highlightedOrderId, displayedOrders?.length]);
 
   // Toast / inline notification state
   const [toastMessage, setToastMessage] = useState<{
@@ -70,6 +154,12 @@ export const OrdersPage: React.FC = () => {
   const [modalActionError, setModalActionError] = useState<string | null>(null);
   const [isZoomed, setIsZoomed] = useState<boolean>(false);
 
+  // Order Cancel Confirmation Modal states
+  const [cancelOrderTarget, setCancelOrderTarget] = useState<any | null>(null);
+  const [cancelReasonChoice, setCancelReasonChoice] = useState<string>(CANCEL_REASONS[0]);
+  const [cancelOtherText, setCancelOtherText] = useState<string>('');
+  const [cancelError, setCancelError] = useState<string | null>(null);
+
   // Clean up blob URL on unmount or when proofBlobUrl changes
   useEffect(() => {
     return () => {
@@ -82,6 +172,7 @@ export const OrdersPage: React.FC = () => {
   // Focus trap refs
   const payModalRef = useRef<HTMLDivElement>(null);
   const viewModalRef = useRef<HTMLDivElement>(null);
+  const cancelModalRef = useRef<HTMLDivElement>(null);
 
   // Android hardware back button and Escape key listener for modals
   useEffect(() => {
@@ -93,6 +184,7 @@ export const OrdersPage: React.FC = () => {
         }
         if (payOrder) setPayOrder(null);
         if (viewPaymentOrder) setViewPaymentOrder(null);
+        if (cancelOrderTarget) setCancelOrderTarget(null);
       }
     };
 
@@ -103,6 +195,7 @@ export const OrdersPage: React.FC = () => {
       }
       if (payOrder) setPayOrder(null);
       if (viewPaymentOrder) setViewPaymentOrder(null);
+      if (cancelOrderTarget) setCancelOrderTarget(null);
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -111,7 +204,7 @@ export const OrdersPage: React.FC = () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('popstate', handlePopState);
     };
-  }, [isZoomed, payOrder, viewPaymentOrder]);
+  }, [isZoomed, payOrder, viewPaymentOrder, cancelOrderTarget]);
 
   // Push history state when opening modal so Android back button closes it cleanly
   const openPayModal = (order: any) => {
@@ -137,6 +230,16 @@ export const OrdersPage: React.FC = () => {
     } catch {}
   };
 
+  const openCancelModal = (order: any) => {
+    setCancelOrderTarget(order);
+    setCancelReasonChoice(CANCEL_REASONS[0]);
+    setCancelOtherText('');
+    setCancelError(null);
+    try {
+      window.history.pushState({ modal: 'cancel_order' }, '');
+    } catch {}
+  };
+
   const closeModals = () => {
     if (proofBlobUrl) {
       URL.revokeObjectURL(proofBlobUrl);
@@ -144,6 +247,7 @@ export const OrdersPage: React.FC = () => {
     }
     if (payOrder) setPayOrder(null);
     if (viewPaymentOrder) setViewPaymentOrder(null);
+    if (cancelOrderTarget) setCancelOrderTarget(null);
     setIsZoomed(false);
   };
 
@@ -166,60 +270,49 @@ export const OrdersPage: React.FC = () => {
     setIsLoadingProof(true);
     setModalActionError(null);
 
-    const token = localStorage.getItem('aq_token') || sessionStorage.getItem('aq_token') || localStorage.getItem('aqualicious_token') || '';
-
-    // 1. Fetch metadata JSON
-    fetch(`/api/orders?proof=${viewPaymentOrder.id}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/json'
-      }
-    })
-      .then(async (res) => {
-        if (!res.ok) {
-          if (res.status === 404) {
-            return { proof_base64: null, reference_number: viewPaymentOrder.reference_number };
-          }
-          throw new Error('Payment details could not be loaded');
-        }
-        const data = await res.json();
+    (async () => {
+      try {
+        // 1. Fetch metadata JSON via shared API client (uses apiBaseUrl & ngrok skip warning)
+        const data = await resolver.request<any>(`/api/orders?proof=${viewPaymentOrder.id}`);
 
         // 2. If proof image exists, fetch binary image blob with Authorization header
-        if (data?.proof_base64) {
+        if (data?.has_proof || data?.proof_base64) {
           try {
-            const imgRes = await fetch(`/api/orders?proof=${viewPaymentOrder.id}&raw=1`, {
-              headers: { Authorization: `Bearer ${token}` }
-            });
-            if (imgRes.ok) {
-              const blob = await imgRes.blob();
-              const objectUrl = URL.createObjectURL(blob);
-              if (isMounted) {
-                setProofBlobUrl((prev) => {
-                  if (prev) URL.revokeObjectURL(prev);
-                  return objectUrl;
-                });
-              } else {
-                URL.revokeObjectURL(objectUrl);
-              }
+            const blob = await resolver.fetchBlob(`/api/orders?proof=${viewPaymentOrder.id}&raw=1`);
+            const objectUrl = URL.createObjectURL(blob);
+            if (isMounted) {
+              setProofBlobUrl((prev) => {
+                if (prev) URL.revokeObjectURL(prev);
+                return objectUrl;
+              });
+            } else {
+              URL.revokeObjectURL(objectUrl);
             }
-          } catch (e) {
-            console.warn('Failed to load blob image, falling back to base64', e);
+          } catch (blobErr) {
+            console.warn('[Orders] Could not fetch raw blob, falling back to base64 preview:', blobErr);
           }
         }
-        return data;
-      })
-      .then((data) => {
+
         if (isMounted) {
           setViewPaymentProof(data);
           setIsLoadingProof(false);
         }
-      })
-      .catch((err) => {
-        if (isMounted) {
+      } catch (err: any) {
+        if (!isMounted) return;
+        console.error('[Orders] Failed to load payment proof:', err);
+        // Handle 404 (order with no proof record) gracefully
+        if (err?.status === 404) {
+          setViewPaymentProof({
+            has_proof: false,
+            proof_base64: null,
+            reference_number: viewPaymentOrder.reference_number || null
+          });
+        } else {
           setModalActionError(getFriendlyErrorMessage(err));
-          setIsLoadingProof(false);
         }
-      });
+        setIsLoadingProof(false);
+      }
+    })();
 
     return () => {
       isMounted = false;
@@ -351,6 +444,37 @@ export const OrdersPage: React.FC = () => {
     }
   };
 
+  // Confirm Order Cancellation (Customer or Admin)
+  const handleConfirmCancelOrder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cancelOrderTarget) return;
+    setCancelError(null);
+
+    const finalReason =
+      cancelReasonChoice === 'Other'
+        ? cancelOtherText.trim().slice(0, 200) || 'Other'
+        : cancelReasonChoice;
+
+    try {
+      await patchOrderMutation.mutateAsync({
+        id: cancelOrderTarget.id,
+        action: 'status',
+        status: 'CANCELLED',
+        reason: finalReason,
+        notes: finalReason
+      });
+      setCancelOrderTarget(null);
+      setCancelOtherText('');
+      setToastMessage({
+        text: `Order #${cancelOrderTarget.order_number} has been cancelled and reserved stock was released.`,
+        type: 'info'
+      });
+    } catch (err: any) {
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      setCancelError(getFriendlyErrorMessage(err));
+    }
+  };
+
   // Verify payment (Admin)
   const handleVerifyPayment = async (id: number) => {
     setModalActionError(null);
@@ -432,7 +556,7 @@ export const OrdersPage: React.FC = () => {
       )}
 
       <div id="page-error" className="text-red-500 text-xs empty:hidden">
-        {error ? (error as any).message : ''}
+        {error ? getFriendlyErrorMessage(error) : ''}
       </div>
 
       <AdminPageHeader
@@ -444,15 +568,59 @@ export const OrdersPage: React.FC = () => {
         }
       />
 
+      {/* Order Filter Pills */}
+      <div className="flex items-center gap-2 flex-wrap" role="group" aria-label="Filter orders">
+        {(
+          [
+            { key: 'all', label: 'All Orders', count: serverCounts?.all },
+            { key: 'pending', label: 'Pending', count: pendingOrdersCount },
+            { key: 'completed', label: 'Completed', count: serverCounts?.completed },
+            { key: 'cancelled', label: 'Cancelled', count: serverCounts?.cancelled }
+          ] as Array<{ key: OrderFilterType; label: string; count?: number }>
+        ).map((tab) => {
+          const isActive = activeFilter === tab.key;
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setFilter(tab.key)}
+              aria-pressed={isActive}
+              className={`px-3.5 py-2 min-h-[40px] rounded-full text-xs font-bold border transition-colors cursor-pointer ${
+                isActive
+                  ? 'bg-[#0b3d91] text-white border-[#0b3d91] shadow-xs'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              {tab.label}
+              {typeof tab.count === 'number' ? ` (${tab.count})` : ''}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Orders List Container */}
-      <div className="orders-list-container">
+      <div className="orders-list-container space-y-4">
+        {isLoading && !displayedOrders ? (
+          <div className="space-y-4">
+            <OrderCardSkeleton />
+            <OrderCardSkeleton />
+          </div>
+        ) : (
         <VirtualCardList
-          items={orders}
+          items={displayedOrders}
           itemHeight={240}
           className="space-y-4"
           emptyContent={
-            <div className="card text-center py-16 text-gray-400">
-              <p className="text-sm font-semibold">No active water orders found.</p>
+            <div className="card text-center py-16 text-gray-500">
+              <p className="text-sm font-semibold">
+                {activeFilter === 'pending'
+                  ? 'No pending orders found.'
+                  : activeFilter === 'completed'
+                  ? 'No completed orders found.'
+                  : activeFilter === 'cancelled'
+                  ? 'No cancelled orders found.'
+                  : 'No active water orders found.'}
+              </p>
             </div>
           }
           renderSkeletonItem={(index) => <OrderCardSkeleton key={index} />}
@@ -472,17 +640,28 @@ export const OrdersPage: React.FC = () => {
                 : 'Walk-in customer');
 
             const gatingNote = getPaymentGatingNote(order);
-            const allowedActions = getAllowedOrderActions(order);
+            const allowedActions = getAllowedOrderActions(order, isAdmin);
             const canPrepare = allowedActions.includes('PREPARE');
             const canReadyForPickup = allowedActions.includes('READY_FOR_PICKUP');
             const canDispatch = allowedActions.includes('OUT_FOR_DELIVERY');
             const canComplete = allowedActions.includes('COMPLETED');
             const canCancel = allowedActions.includes('CANCEL');
+            const isHighlighted = highlightedOrderId === order.id;
+            const showPostPaymentContact =
+              !isAdmin &&
+              rawOrderStatus === 'PENDING' &&
+              (rawPaymentStatus === 'SUBMITTED' || rawPaymentStatus === 'VERIFIED' || rawPaymentStatus === 'COMPLETED');
+            const expiryTimeFormatted = order.payment_expires_at ? formatManilaTimeOnly(order.payment_expires_at) : '';
 
             return (
               <div
+                id={`order-card-${order.id}`}
                 key={order.id}
-                className="order card bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col md:flex-row justify-between gap-5 transition-all"
+                className={`order card p-5 rounded-2xl shadow-sm flex flex-col md:flex-row justify-between gap-5 transition-all ${
+                  isHighlighted
+                    ? 'bg-blue-50/40 border-[#1565c0] ring-2 ring-[#1565c0]'
+                    : 'bg-white border border-gray-200'
+                }`}
               >
                 {/* Main Order Details Area */}
                 <div className="space-y-3 flex-1 min-w-0">
@@ -538,7 +717,7 @@ export const OrdersPage: React.FC = () => {
                         </span>
                       ) : isCash ? (
                         <span className="badge badge-warning text-xs font-bold px-2.5 py-1">
-                          Payment: {formatPaymentStatus(rawPaymentStatus)}
+                          {formatCashPaymentLabel(order.fulfillment)}
                         </span>
                       ) : rawPaymentStatus === 'SUBMITTED' ? (
                         <span className="badge badge-info text-xs font-bold text-white flex items-center gap-1 px-2.5 py-1">
@@ -583,6 +762,39 @@ export const OrdersPage: React.FC = () => {
                         </span>
                       </div>
                     )}
+
+                    {/* Auto-cancel deadline notice for Customer unpaid E-Wallet orders */}
+                    {!isAdmin && isEWallet && rawOrderStatus === 'PENDING' && rawPaymentStatus === 'PENDING' && expiryTimeFormatted && (
+                      <div className="text-xs text-amber-800 bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-200 font-medium flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 shrink-0 text-amber-600" />
+                        <span>Pay before {expiryTimeFormatted} or this order is cancelled automatically</span>
+                      </div>
+                    )}
+
+                    {/* Cancellation Details (Visible to Admin and Customer on Cancelled Orders) */}
+                    {rawOrderStatus === 'CANCELLED' && (
+                      <div className="text-xs text-red-800 bg-red-50 px-2.5 py-2 rounded-lg border border-red-200 space-y-1">
+                        <div className="flex items-center justify-between gap-2 flex-wrap font-bold">
+                          <span>
+                            {order.cancelled_by_role === 'CUSTOMER'
+                              ? 'Cancelled by customer'
+                              : order.cancelled_by_role === 'SYSTEM' || order.cancel_reason === 'Auto-cancelled: unpaid'
+                              ? 'Auto-cancelled: unpaid'
+                              : 'Cancelled by administrator'}
+                          </span>
+                          {order.cancelled_at && (
+                            <span className="text-[11px] font-medium text-red-700">
+                              {formatManilaTimestamp(order.cancelled_at)}
+                            </span>
+                          )}
+                        </div>
+                        {order.cancel_reason && (
+                          <div className="text-red-700 break-words">
+                            <strong>Reason:</strong> {String(order.cancel_reason).slice(0, 300)}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -607,14 +819,14 @@ export const OrdersPage: React.FC = () => {
                         {formatOrderStatus(rawOrderStatus)}
                       </span>
                       <span className="text-2xl font-black text-[#0b3d91] whitespace-nowrap">
-                        ₱{Number(order.total).toFixed(2)}
+                        {formatPeso(order.total)}
                       </span>
                     </div>
                   </div>
 
                   <div className="flex flex-col gap-2.5 w-full mt-3">
                     {/* Customer E-Wallet Pay Now Button */}
-                    {!isAdmin && isEWallet && (rawPaymentStatus === 'PENDING' || rawPaymentStatus === 'REJECTED') && (
+                    {!isAdmin && isEWallet && rawOrderStatus !== 'CANCELLED' && (rawPaymentStatus === 'PENDING' || rawPaymentStatus === 'REJECTED') && (
                       <button
                         type="button"
                         onClick={() => openPayModal(order)}
@@ -623,6 +835,27 @@ export const OrdersPage: React.FC = () => {
                         <QrCode className="w-4 h-4 flex-shrink-0" />
                         {rawPaymentStatus === 'REJECTED' ? 'Re-upload Proof' : 'Pay Now'}
                       </button>
+                    )}
+
+                    {/* Customer Cancel Order Button (only while PENDING and unpaid/rejected) */}
+                    {!isAdmin && canCancel && rawOrderStatus === 'PENDING' && (
+                      <button
+                        type="button"
+                        onClick={() => openCancelModal(order)}
+                        className="btn btn-outline btn-error min-h-[42px] h-[42px] w-full text-sm font-bold whitespace-nowrap rounded-xl hover:bg-red-50"
+                      >
+                        Cancel Order
+                      </button>
+                    )}
+
+                    {/* Customer Post-Payment Contact Notice (SUBMITTED / VERIFIED) */}
+                    {showPostPaymentContact && (
+                      <div className="w-full p-2.5 bg-blue-50/80 border border-blue-200 rounded-xl text-[11px] text-slate-700 space-y-0.5">
+                        <div className="font-bold text-[#0b3d91]">Contact the station to cancel this order.</div>
+                        <div className="text-slate-600">
+                          {COPY.ABOUT.EMAIL} · {COPY.ABOUT.PHONE}
+                        </div>
+                      </div>
                     )}
 
                     {/* Admin View Payment Button (Always visible for E-Wallet orders) */}
@@ -691,7 +924,7 @@ export const OrdersPage: React.FC = () => {
                         {canCancel && rawOrderStatus !== 'COMPLETED' && rawOrderStatus !== 'CANCELLED' && (
                           <button
                             type="button"
-                            onClick={() => updateStatus(order.id, 'CANCELLED')}
+                            onClick={() => openCancelModal(order)}
                             className="btn btn-outline btn-error min-h-[42px] h-[42px] w-full text-sm font-bold whitespace-nowrap rounded-xl hover:bg-red-50"
                           >
                             Cancel Order
@@ -705,31 +938,35 @@ export const OrdersPage: React.FC = () => {
             );
           }}
         />
+        )}
+
+        {/* Lazy-load 40-row pagination footer & intersection sentinel */}
+        {hasNextPage && (
+          <div ref={loadMoreRef} className="flex flex-col items-center justify-center py-4 gap-2">
+            <button
+              type="button"
+              onClick={() => fetchNextPage()}
+              disabled={isFetchingNextPage}
+              className="btn btn-outline btn-sm min-h-[42px] px-6 rounded-xl font-bold text-xs border-slate-300"
+            >
+              {isFetchingNextPage ? 'Loading more orders...' : 'Load More Orders'}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Customer E-Wallet Pay Now Modal */}
-      {payOrder && (
-        <dialog open className="modal modal-open z-50">
-          <div
-            ref={payModalRef}
-            className="modal-box max-w-lg bg-white text-slate-800 p-6 rounded-2xl shadow-2xl border border-slate-200"
-          >
-            <div className="flex justify-between items-center pb-3 border-b border-gray-200">
-              <h3 className="font-black text-lg text-[#0b3d91] flex items-center gap-2">
-                <QrCode className="w-5 h-5 text-blue-600" />
-                Pay with E-Wallet
-              </h3>
-              <button
-                type="button"
-                onClick={closeModals}
-                className="btn btn-sm btn-circle btn-ghost text-gray-500"
-                aria-label="Close"
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleClaimPayment} className="space-y-4 mt-4">
+      <Modal
+        isOpen={Boolean(payOrder)}
+        onClose={closeModals}
+        cardRef={payModalRef}
+        size="lg"
+        closeAriaLabel="Close"
+        icon={<QrCode className="w-5 h-5 text-blue-600" />}
+        title="Pay with E-Wallet"
+      >
+        {payOrder && (
+          <form onSubmit={handleClaimPayment} className="space-y-4">
               {/* Mock QR SVG Component */}
               <MockQrDisplay
                 orderNumber={payOrder.order_number}
@@ -790,7 +1027,7 @@ export const OrdersPage: React.FC = () => {
                 />
               </div>
 
-              <div className="modal-action flex justify-end gap-2.5 pt-3 border-t border-gray-100">
+              <div className="flex justify-end gap-2.5 pt-3 border-t border-gray-100">
                 <button
                   type="button"
                   onClick={closeModals}
@@ -806,34 +1043,22 @@ export const OrdersPage: React.FC = () => {
                   {patchOrderMutation.isPending ? 'Submitting...' : 'Submit Proof'}
                 </button>
               </div>
-            </form>
-          </div>
-        </dialog>
-      )}
+          </form>
+        )}
+      </Modal>
 
       {/* Admin View Payment Modal */}
-      {viewPaymentOrder && (
-        <dialog open className="modal modal-open z-50">
-          <div
-            ref={viewModalRef}
-            className="modal-box max-w-lg bg-white text-slate-800 p-6 rounded-2xl shadow-2xl border border-slate-200"
-          >
-            <div className="flex justify-between items-center pb-3 border-b border-gray-200">
-              <h3 className="font-black text-lg text-[#0b3d91] flex items-center gap-2">
-                <CreditCard className="w-5 h-5 text-blue-600" />
-                E-Wallet Payment Verification
-              </h3>
-              <button
-                type="button"
-                onClick={closeModals}
-                className="btn btn-sm btn-circle btn-ghost text-gray-500"
-                aria-label="Close"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-4 mt-4 text-xs">
+      <Modal
+        isOpen={Boolean(viewPaymentOrder)}
+        onClose={closeModals}
+        cardRef={viewModalRef}
+        size="lg"
+        closeAriaLabel="Close"
+        icon={<CreditCard className="w-5 h-5 text-blue-600" />}
+        title="E-Wallet Payment Verification"
+      >
+        {viewPaymentOrder && (
+          <div className="space-y-4 text-xs">
               {/* Order and Payment Snapshot Details */}
               <div className="grid grid-cols-2 gap-3 p-3.5 bg-gray-50 rounded-xl border border-gray-200">
                 <div>
@@ -854,7 +1079,7 @@ export const OrdersPage: React.FC = () => {
                 <div>
                   <span className="text-gray-400 font-semibold block">Order Amount:</span>
                   <p className="font-black text-base text-[#0b3d91]">
-                    ₱{Number(viewPaymentOrder.total).toFixed(2)}
+                    {formatPeso(viewPaymentOrder.total)}
                   </p>
                 </div>
                 <div>
@@ -864,16 +1089,16 @@ export const OrdersPage: React.FC = () => {
                   </p>
                 </div>
                 <div>
-                  <span className="text-gray-400 font-semibold block">Payment Status:</span>
+                  <span className="text-gray-400 font-semibold block mb-0.5">Payment Status:</span>
                   <span
-                    className={`badge text-[11px] font-bold mt-0.5 ${
+                    className={`inline-flex items-center text-[11px] font-bold px-2.5 py-1 rounded-md leading-tight max-w-full break-words whitespace-normal ${
                       viewPaymentOrder.payment_status === 'VERIFIED' || viewPaymentOrder.payment_status === 'COMPLETED'
-                        ? 'badge-success text-white'
+                        ? 'bg-emerald-600 text-white'
                         : viewPaymentOrder.payment_status === 'SUBMITTED'
-                        ? 'badge-info text-white'
+                        ? 'bg-sky-600 text-white'
                         : viewPaymentOrder.payment_status === 'REJECTED'
-                        ? 'badge-error text-white'
-                        : 'badge-warning'
+                        ? 'bg-red-600 text-white'
+                        : 'bg-amber-100 text-amber-900 border border-amber-300'
                     }`}
                   >
                     {formatPaymentStatus(viewPaymentOrder.payment_status || viewPaymentOrder.payment?.status)}
@@ -946,7 +1171,7 @@ export const OrdersPage: React.FC = () => {
                       alt="Customer payment proof"
                       onClick={() => setIsZoomed(!isZoomed)}
                       className={`cursor-pointer transition-all duration-200 rounded-lg shadow-sm border border-gray-300 object-contain mx-auto ${
-                        isZoomed ? 'max-h-[500px] w-full scale-105' : 'max-h-72 w-auto'
+                        isZoomed ? 'max-h-[calc(100dvh-16rem)] w-full scale-105' : 'max-h-72 w-auto'
                       }`}
                       title="Click to toggle full size"
                     />
@@ -1005,24 +1230,125 @@ export const OrdersPage: React.FC = () => {
                     type="button"
                     onClick={() => setShowRejectInput(true)}
                     disabled={patchOrderMutation.isPending}
-                    className="btn btn-sm btn-outline btn-error font-bold h-10 px-4 rounded-xl"
+                    className="btn btn-outline btn-error font-bold min-h-[42px] h-[42px] px-4 rounded-xl text-sm"
                   >
                     Reject Claim
                   </button>
                   <button
                     type="button"
-                    disabled={patchOrderMutation.isPending}
+                    disabled={
+                      patchOrderMutation.isPending ||
+                      isLoadingProof ||
+                      (!viewPaymentProof?.has_proof &&
+                        !viewPaymentProof?.proof_base64 &&
+                        !viewPaymentProof?.reference_number &&
+                        !viewPaymentOrder.reference_number)
+                    }
                     onClick={() => handleVerifyPayment(viewPaymentOrder.id)}
-                    className="btn btn-sm btn-primary font-bold px-6 h-10 rounded-xl"
+                    className="btn btn-primary font-bold px-6 min-h-[42px] h-[42px] rounded-xl text-sm text-white"
                   >
                     {patchOrderMutation.isPending ? 'Verifying...' : 'Verify Payment'}
                   </button>
                 </div>
               )}
-            </div>
           </div>
-        </dialog>
-      )}
+        )}
+      </Modal>
+
+      {/* Order Cancellation Confirmation Modal */}
+      <Modal
+        isOpen={Boolean(cancelOrderTarget)}
+        onClose={closeModals}
+        cardRef={cancelModalRef}
+        size="md"
+        headerVariant="danger"
+        closeAriaLabel="Keep order"
+        icon={<AlertTriangle className="w-5 h-5 text-red-600" />}
+        title={cancelOrderTarget ? `Cancel Order #${cancelOrderTarget.order_number}?` : 'Cancel Order'}
+      >
+        {cancelOrderTarget && (
+          <form onSubmit={handleConfirmCancelOrder} className="space-y-4">
+            <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 text-xs space-y-1">
+              <div className="flex justify-between font-bold text-gray-800">
+                <span>Order Total</span>
+                <span className="text-[#0b3d91]">{formatPeso(cancelOrderTarget.total)}</span>
+              </div>
+              <div className="text-gray-600">
+                {formatFulfillment(cancelOrderTarget.fulfillment)} · {formatPaymentMethod(cancelOrderTarget.payment_method)}
+              </div>
+            </div>
+
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-1.5 leading-relaxed">
+              <p className="font-bold">Before you cancel:</p>
+              <p>Cancelling this order immediately releases the reserved water stock and cannot be undone.</p>
+              {isAdmin &&
+              (cancelOrderTarget.payment_status === 'VERIFIED' || cancelOrderTarget.payment_status === 'COMPLETED') ? (
+                <p className="font-semibold text-red-800">
+                  Payment was already verified — cancelling will mark this order as Refund Required.
+                </p>
+              ) : (cancelOrderTarget.payment_method || '').toUpperCase() !== 'CASH' ? (
+                <p>
+                  No verified payment is recorded yet. If you already transferred funds, please contact the station ({COPY.ABOUT.EMAIL}).
+                </p>
+              ) : (
+                <p>No cash payment has been collected, so no refund is needed.</p>
+              )}
+            </div>
+
+            {cancelError && (
+              <div role="alert" className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl font-medium">
+                {cancelError}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label htmlFor="cancel-reason-select" className="block text-xs font-bold text-gray-700">
+                Reason for cancellation <span className="text-gray-400 font-normal">(Optional)</span>
+              </label>
+              <select
+                id="cancel-reason-select"
+                value={cancelReasonChoice}
+                onChange={(e) => setCancelReasonChoice(e.target.value)}
+                className="select select-bordered select-sm w-full bg-white text-xs h-10 rounded-xl"
+              >
+                {CANCEL_REASONS.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+
+              {cancelReasonChoice === 'Other' && (
+                <textarea
+                  value={cancelOtherText}
+                  onChange={(e) => setCancelOtherText(e.target.value.slice(0, 200))}
+                  maxLength={200}
+                  rows={2}
+                  placeholder="Share optional details (max 200 characters)"
+                  className="textarea textarea-bordered w-full bg-white text-xs rounded-xl"
+                />
+              )}
+            </div>
+
+            <div className="flex flex-col-reverse sm:flex-row justify-end gap-2.5 pt-3 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={closeModals}
+                className="btn btn-ghost min-h-[44px] px-5 rounded-xl font-bold text-xs border border-gray-300"
+              >
+                Keep order
+              </button>
+              <button
+                type="submit"
+                disabled={patchOrderMutation.isPending}
+                className="btn btn-error text-white min-h-[44px] px-6 rounded-xl font-bold text-xs shadow-sm"
+              >
+                {patchOrderMutation.isPending ? 'Cancelling...' : 'Cancel order'}
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
     </div>
   );
 };

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import './safety_guard.mjs';
 import { PrismaClient } from '../backend/node_modules/@prisma/client/index.js';
+import { uiTestLogin } from './helpers/testAuth.mjs';
 
 const baseUrl = process.env.AQ_TEST_WEB || 'http://127.0.0.1:8090';
 const adminPassword = process.env.AQ_ADMIN_PASSWORD || 'admin123';
@@ -176,11 +177,7 @@ try {
     }
   });
 
-  await adminPage.goto(`${baseUrl}/login`);
-  await adminPage.fill('input[name="username"]', adminUsername);
-  await adminPage.fill('input[name="password"]', adminPassword);
-  await adminPage.click('button[type="submit"]');
-  await adminPage.waitForURL(`${baseUrl}/dashboard`);
+  await uiTestLogin(adminPage, baseUrl, adminUsername, adminPassword, '/dashboard');
 
   // Navigate to /admin/products via Sidebar link
   await adminPage.waitForSelector('.sidebar-nav a[data-id="products"]');
@@ -330,12 +327,7 @@ try {
       getPlatform: () => 'android'
     };
   });
-  await hashPage.goto(`${baseUrl}/#/login`);
-  await hashPage.fill('input[name="username"]', adminUsername);
-  await hashPage.fill('input[name="password"]', adminPassword);
-  await hashPage.click('button[type="submit"]');
-  await hashPage.waitForURL('**/#/**');
-  await hashPage.goto(`${baseUrl}/#/admin/products`);
+  await uiTestLogin(hashPage, baseUrl, adminUsername, adminPassword, '/#/admin/products');
   await hashPage.waitForSelector('table tbody tr', { timeout: 10000 });
   const hashTableVisible = await hashPage.locator('table').isVisible();
   report(hashTableVisible, 'Admin Products table renders and operates seamlessly in HashRouter (#/admin/products) mode');

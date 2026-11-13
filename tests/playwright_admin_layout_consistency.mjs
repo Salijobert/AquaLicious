@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import './safety_guard.mjs';
+import { uiTestLogin } from './helpers/testAuth.mjs';
 
 const baseUrl = process.env.AQ_TEST_WEB || 'http://127.0.0.1:8090';
 const adminPassword = process.env.AQ_ADMIN_PASSWORD || 'admin123';
@@ -74,12 +75,8 @@ try {
     });
     const page = await context.newPage();
 
-    // 1. Sign in as Admin
-    await page.goto(`${baseUrl}/login`);
-    await page.fill('input[name="username"]', 'test-owner');
-    await page.fill('input[name="password"]', adminPassword);
-    await page.click('button[type="submit"]');
-    await page.waitForURL('**/dashboard');
+    // 1. Sign in as Admin cleanly
+    await uiTestLogin(page, baseUrl, 'test-owner', adminPassword, '/dashboard');
     report(page.url().includes('/dashboard'), `[${vp.name}] Admin authentication successful`);
 
     for (const p of adminPages) {

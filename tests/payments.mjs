@@ -14,7 +14,7 @@ const {PrismaClient}=await import('../backend/node_modules/@prisma/client/index.
 const prisma=new PrismaClient();
 const u1=await prisma.user.update({where:{email:cReg.user.email},data:{emailVerified:true}});
 const u2=await prisma.user.update({where:{email:otherReg.user.email},data:{emailVerified:true}});
-const {generateTestToken}=await import('../backend/dist/config/index.js');
+const {generateTestToken}=await import('./helpers/testAuth.mjs');
 const c=generateTestToken({uid:u1.firebaseUid,email:u1.email,role:'CUSTOMER',email_verified:true});
 const other=generateTestToken({uid:u2.firebaseUid,email:u2.email,role:'CUSTOMER',email_verified:true});
 await prisma.$disconnect();

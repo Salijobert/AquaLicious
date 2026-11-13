@@ -1,19 +1,42 @@
-import { prisma } from '../config/index.js';
+import { prisma, config } from '../config/index.js';
 import { MovementType, OrderStatus, OrderType, PaymentMethod, PaymentStatus, Role } from '@prisma/client';
 import { sanitize } from '../middleware/security.js';
 import { Mailer } from './mailer.js';
 import crypto from 'crypto';
 
-export function computeAllowedOrderActions(order: {
-  orderStatus: OrderStatus | string;
-  paymentMethod: PaymentMethod | string;
-  paymentStatus: PaymentStatus | string;
-  orderType: OrderType | string;
-}): string[] {
+// Single canonical definition shared by Admin Pending Orders tile, Notification bell, and Orders Pending filter
+export const PENDING_ORDER_WHERE = {
+  orderStatus: OrderStatus.PENDING
+};
+
+export function computeAllowedOrderActions(
+  order: {
+    orderStatus: OrderStatus | string;
+    paymentMethod: PaymentMethod | string;
+    paymentStatus: PaymentStatus | string;
+    orderType: OrderType | string;
+  },
+  role: Role | string = Role.ADMIN
+): string[] {
   const isCompleted = order.orderStatus === OrderStatus.COMPLETED || order.orderStatus === 'COMPLETED';
   const isCancelled = order.orderStatus === OrderStatus.CANCELLED || order.orderStatus === 'CANCELLED';
-  if (isCompleted || isCancelled) {
+  const isVoided = order.orderStatus === OrderStatus.VOIDED || order.orderStatus === 'VOIDED';
+  if (isCompleted || isCancelled || isVoided) {
     return [];
+  }
+
+  const isCustomer = role === Role.CUSTOMER || role === 'CUSTOMER';
+  if (isCustomer) {
+    const isPendingOrder = order.orderStatus === OrderStatus.PENDING || order.orderStatus === 'PENDING';
+    const isPaymentLockedForCancel =
+      order.paymentStatus === PaymentStatus.SUBMITTED ||
+      order.paymentStatus === 'SUBMITTED' ||
+      order.paymentStatus === PaymentStatus.VERIFIED ||
+      order.paymentStatus === 'VERIFIED' ||
+      order.paymentStatus === PaymentStatus.COMPLETED ||
+      order.paymentStatus === 'COMPLETED';
+
+    return isPendingOrder && !isPaymentLockedForCancel ? ['CANCEL'] : [];
   }
 
   const isEWallet =
@@ -62,12 +85,90 @@ export function computeAllowedOrderActions(order: {
   }
 }
 
+function serializeOrderRecord(o: any, viewerRole: Role | string) {
+  const customerName = o.customerName || (o.orderType === OrderType.WALK_IN_POS ? 'Walk-in customer' : (o.user?.name || 'Walk-in customer'));
+  const paymentMethod = (o.paymentMethod === 'GCASH_QR' || o.paymentMethod === 'MAYA_QR' || o.paymentMethod === 'E_WALLET') ? 'E_WALLET' : 'CASH';
+  const isEWallet = paymentMethod === 'E_WALLET';
+  const hasReference = Boolean(o.paymentReference && String(o.paymentReference).trim().length > 0);
+  const paymentExpiresAt =
+    isEWallet &&
+    o.orderStatus === OrderStatus.PENDING &&
+    o.paymentStatus === PaymentStatus.PENDING &&
+    !o.proofBase64 &&
+    !hasReference
+      ? new Date(o.createdAt.getTime() + config.unpaidOrderTtlMinutes * 60 * 1000).toISOString()
+      : null;
+
+  let cancelledByRole: 'CUSTOMER' | 'ADMIN' | 'SYSTEM' | null = null;
+  if (o.orderStatus === OrderStatus.CANCELLED) {
+    if (o.cancelledById) {
+      if (o.cancelledBy?.role === Role.ADMIN) {
+        cancelledByRole = 'ADMIN';
+      } else if (o.cancelledById === o.userId || o.cancelledBy?.role === Role.CUSTOMER) {
+        cancelledByRole = 'CUSTOMER';
+      } else {
+        cancelledByRole = 'ADMIN';
+      }
+    } else if (o.cancelReason === 'Auto-cancelled: unpaid' || o.notes === 'Auto-cancelled: unpaid') {
+      cancelledByRole = 'SYSTEM';
+    }
+  }
+
+  return {
+    id: o.id,
+    order_number: o.orderNumber,
+    customer: customerName,
+    user: {
+      name: customerName,
+      username: o.user?.username
+    },
+    total: Number(o.totalAmount).toFixed(2),
+    payment_method: paymentMethod,
+    payment_status: o.paymentStatus,
+    payment: {
+      method: paymentMethod,
+      status: o.paymentStatus,
+      reference_number: o.paymentReference
+    },
+    reference_number: o.paymentReference,
+    has_proof: !!o.proofBase64,
+    status: o.orderStatus,
+    fulfillment: o.orderType,
+    allowed_actions: computeAllowedOrderActions(
+      {
+        orderStatus: o.orderStatus,
+        paymentMethod: o.paymentMethod,
+        paymentStatus: o.paymentStatus,
+        orderType: o.orderType
+      },
+      viewerRole
+    ),
+    address: o.deliveryAddress,
+    notes: o.notes,
+    cancelled_at: o.cancelledAt ? o.cancelledAt.toISOString() : null,
+    cancelled_by_id: o.cancelledById ?? null,
+    cancelled_by_role: cancelledByRole,
+    cancel_reason: o.cancelReason || (o.orderStatus === OrderStatus.CANCELLED ? o.notes : null) || null,
+    payment_expires_at: paymentExpiresAt,
+    created_at: o.createdAt.toISOString(),
+    items: o.items.map((i: any) => ({
+      product_id: i.productId,
+      product_name: i.product.name,
+      sku: i.product.sku,
+      qty: i.quantity,
+      unit_price: Number(i.unitPrice).toFixed(2),
+      subtotal: Number(i.subtotal).toFixed(2)
+    }))
+  };
+}
+
 export class OrderService {
   /**
    * Places a customer order and immediately reserves stock under row locks.
    */
   static async createOrder(params: {
     userId: number;
+    userRole?: Role;
     items: Array<{ product_id: number; qty: number }>;
     fulfillment: 'PICKUP' | 'DELIVERY';
     address?: string;
@@ -75,14 +176,41 @@ export class OrderService {
     expectedTotal?: number | string;
     requestKey?: string;
   }) {
-    const { userId, items, fulfillment, address, method, expectedTotal, requestKey } = params;
+    const { userId, userRole, items, fulfillment, address, method, expectedTotal, requestKey } = params;
 
     if (method !== 'CASH' && method !== 'E_WALLET') {
       throw { status: 422, message: 'Invalid payment method. Only Cash and E-Wallet are accepted.' };
     }
 
+    if (fulfillment === 'PICKUP' && method === 'CASH') {
+      throw {
+        status: 422,
+        code: 'PICKUP_REQUIRES_EWALLET',
+        message: 'Pickup at Station orders must be paid via E-Wallet (GCash / Maya). Cash is only available for Delivery.'
+      };
+    }
+
     if (!items || items.length === 0) {
       throw { status: 422, message: 'Cart items cannot be empty' };
+    }
+
+    // Enforce simultaneous unpaid pending order limit for customers before acquiring product locks
+    // (preserves ascending productId lock order; rare concurrent double-submits could briefly overshoot by 1 without creating product lock cycles).
+    if (userRole !== Role.ADMIN) {
+      const unpaidPendingCount = await prisma.salesOrder.count({
+        where: {
+          userId,
+          orderStatus: OrderStatus.PENDING,
+          paymentStatus: { in: [PaymentStatus.PENDING, PaymentStatus.REJECTED] }
+        }
+      });
+      if (unpaidPendingCount >= config.maxUnpaidPendingOrders) {
+        throw {
+          status: 422,
+          code: 'UNPAID_ORDER_LIMIT',
+          message: `You already have ${unpaidPendingCount} unpaid pending orders (limit: ${config.maxUnpaidPendingOrders}). Please pay or cancel an existing order before placing a new one.`
+        };
+      }
     }
 
     const itemMap = new Map<number, number>();
@@ -246,6 +374,19 @@ export class OrderService {
         },
         status: order.orderStatus,
         fulfillment: order.orderType,
+        allowed_actions: computeAllowedOrderActions(
+          {
+            orderStatus: order.orderStatus,
+            paymentMethod: order.paymentMethod,
+            paymentStatus: order.paymentStatus,
+            orderType: order.orderType
+          },
+          Role.CUSTOMER
+        ),
+        payment_expires_at:
+          order.paymentMethod !== PaymentMethod.CASH
+            ? new Date(order.createdAt.getTime() + config.unpaidOrderTtlMinutes * 60 * 1000).toISOString()
+            : null,
         created_at: order.createdAt.toISOString()
       };
     });
@@ -292,65 +433,87 @@ export class OrderService {
     return createdOrder;
   }
 
-  static async listOrders(user: { id: number; role: Role }, limit = 200) {
+  private static buildStatusFilterWhere(user: { id: number; role: Role }, status?: string) {
     const isCustomer = user.role === Role.CUSTOMER;
-    const whereClause = isCustomer ? { userId: user.id } : {};
+    const normalized = (status || '').trim().toUpperCase();
+    let statusWhere: Record<string, any> = {};
+    if (normalized === 'PENDING') {
+      statusWhere = PENDING_ORDER_WHERE;
+    } else if (normalized === 'COMPLETED') {
+      statusWhere = { orderStatus: OrderStatus.COMPLETED };
+    } else if (normalized === 'CANCELLED') {
+      statusWhere = { orderStatus: OrderStatus.CANCELLED };
+    }
+    return {
+      ...(isCustomer ? { userId: user.id } : {}),
+      ...statusWhere
+    };
+  }
+
+  static async listOrders(user: { id: number; role: Role }, limit = 200, status?: string) {
+    const normalized = (status || '').trim().toUpperCase();
+    const whereClause = this.buildStatusFilterWhere(user, status);
+    const effectiveLimit = normalized === 'PENDING' ? Math.max(limit, 1000) : limit;
 
     const orders = await prisma.salesOrder.findMany({
       where: whereClause,
-      take: limit,
-      orderBy: { id: 'desc' },
+      take: effectiveLimit,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       include: {
         user: { select: { name: true, username: true } },
+        cancelledBy: { select: { id: true, role: true } },
         items: {
           include: { product: { select: { name: true, sku: true } } }
         }
       }
     });
 
-    return orders.map(o => {
-      const customerName = o.customerName || (o.orderType === OrderType.WALK_IN_POS ? 'Walk-in customer' : (o.user?.name || 'Walk-in customer'));
-      const paymentMethod = (o.paymentMethod === 'GCASH_QR' || o.paymentMethod === 'MAYA_QR' || o.paymentMethod === 'E_WALLET') ? 'E_WALLET' : 'CASH';
+    return orders.map((o) => serializeOrderRecord(o, user.role));
+  }
 
-      return {
-        id: o.id,
-        order_number: o.orderNumber,
-        customer: customerName,
-        user: {
-          name: customerName,
-          username: o.user?.username
-        },
-        total: Number(o.totalAmount).toFixed(2),
-        payment_method: paymentMethod,
-        payment_status: o.paymentStatus,
-        payment: {
-          method: paymentMethod,
-          status: o.paymentStatus,
-          reference_number: o.paymentReference
-        },
-        reference_number: o.paymentReference,
-        has_proof: !!o.proofBase64,
-        status: o.orderStatus,
-        fulfillment: o.orderType,
-        allowed_actions: computeAllowedOrderActions({
-          orderStatus: o.orderStatus,
-          paymentMethod: o.paymentMethod,
-          paymentStatus: o.paymentStatus,
-          orderType: o.orderType
-        }),
-        address: o.deliveryAddress,
-        notes: o.notes,
-        created_at: o.createdAt.toISOString(),
-        items: o.items.map(i => ({
-          product_id: i.productId,
-          product_name: i.product.name,
-          sku: i.product.sku,
-          qty: i.quantity,
-          unit_price: Number(i.unitPrice).toFixed(2),
-          subtotal: Number(i.subtotal).toFixed(2)
-        }))
-      };
-    });
+  static async listOrdersPaginated(
+    user: { id: number; role: Role },
+    params: { status?: string; limit?: number; offset?: number }
+  ) {
+    const safeLimit = Math.min(Math.max(Math.trunc(Number(params.limit) || 40), 1), 100);
+    const safeOffset = Math.max(Math.trunc(Number(params.offset) || 0), 0);
+    const userScope = user.role === Role.CUSTOMER ? { userId: user.id } : {};
+    const whereClause = this.buildStatusFilterWhere(user, params.status);
+
+    const [items, total, allCount, pendingCount, completedCount, cancelledCount] = await Promise.all([
+      prisma.salesOrder.findMany({
+        where: whereClause,
+        take: safeLimit,
+        skip: safeOffset,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        include: {
+          user: { select: { name: true, username: true } },
+          cancelledBy: { select: { id: true, role: true } },
+          items: {
+            include: { product: { select: { name: true, sku: true } } }
+          }
+        }
+      }),
+      prisma.salesOrder.count({ where: whereClause }),
+      prisma.salesOrder.count({ where: userScope }),
+      prisma.salesOrder.count({ where: { ...userScope, ...PENDING_ORDER_WHERE } }),
+      prisma.salesOrder.count({ where: { ...userScope, orderStatus: OrderStatus.COMPLETED } }),
+      prisma.salesOrder.count({ where: { ...userScope, orderStatus: OrderStatus.CANCELLED } })
+    ]);
+
+    return {
+      items: items.map((o) => serializeOrderRecord(o, user.role)),
+      total,
+      limit: safeLimit,
+      offset: safeOffset,
+      has_more: safeOffset + items.length < total,
+      counts: {
+        all: allCount,
+        pending: pendingCount,
+        completed: completedCount,
+        cancelled: cancelledCount
+      }
+    };
   }
 
   static async getOrder(id: number, user: { id: number; role: Role }) {
@@ -358,6 +521,7 @@ export class OrderService {
       where: { id },
       include: {
         user: { select: { name: true, username: true } },
+        cancelledBy: { select: { id: true, role: true } },
         items: {
           include: { product: { select: { name: true, sku: true } } }
         }
@@ -372,45 +536,56 @@ export class OrderService {
       throw { status: 404, message: 'Order not found' };
     }
 
-    const customerName = order.customerName || (order.orderType === OrderType.WALK_IN_POS ? 'Walk-in customer' : (order.user?.name || 'Walk-in customer'));
-    const paymentMethod = (order.paymentMethod === 'GCASH_QR' || order.paymentMethod === 'MAYA_QR' || order.paymentMethod === 'E_WALLET') ? 'E_WALLET' : 'CASH';
+    return serializeOrderRecord(order, user.role);
+  }
+
+  static async getPendingSummary(limit = 5) {
+    const safeLimit = Math.min(Math.max(Math.trunc(Number(limit) || 5), 1), 20);
+
+    const [count, pendingRows] = await Promise.all([
+      prisma.salesOrder.count({ where: PENDING_ORDER_WHERE }),
+      prisma.salesOrder.findMany({
+        where: PENDING_ORDER_WHERE,
+        take: safeLimit,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: {
+          id: true,
+          orderNumber: true,
+          customerName: true,
+          orderType: true,
+          orderStatus: true,
+          paymentMethod: true,
+          paymentStatus: true,
+          totalAmount: true,
+          createdAt: true,
+          user: { select: { name: true } },
+          items: {
+            select: {
+              quantity: true,
+              product: { select: { name: true } }
+            },
+            orderBy: { id: 'asc' }
+          }
+        }
+      })
+    ]);
 
     return {
-      id: order.id,
-      order_number: order.orderNumber,
-      customer: customerName,
-      user: {
-        name: customerName,
-        username: order.user?.username
-      },
-      total: Number(order.totalAmount).toFixed(2),
-      payment_method: paymentMethod,
-      payment_status: order.paymentStatus,
-      payment: {
-        method: paymentMethod,
-        status: order.paymentStatus,
-        reference_number: order.paymentReference
-      },
-      reference_number: order.paymentReference,
-      has_proof: !!order.proofBase64,
-      status: order.orderStatus,
-      fulfillment: order.orderType,
-      allowed_actions: computeAllowedOrderActions({
-        orderStatus: order.orderStatus,
-        paymentMethod: order.paymentMethod,
-        paymentStatus: order.paymentStatus,
-        orderType: order.orderType
-      }),
-      address: order.deliveryAddress,
-      notes: order.notes,
-      created_at: order.createdAt.toISOString(),
-      items: order.items.map(i => ({
-        product_id: i.productId,
-        product_name: i.product.name,
-        sku: i.product.sku,
-        qty: i.quantity,
-        unit_price: Number(i.unitPrice).toFixed(2),
-        subtotal: Number(i.subtotal).toFixed(2)
+      count,
+      orders: pendingRows.map((order) => ({
+        id: order.id,
+        order_number: order.orderNumber,
+        customer_name: (order.customerName || order.user?.name || '').trim() || 'Walk-in customer',
+        fulfillment: order.orderType,
+        status: order.orderStatus,
+        payment_method: order.paymentMethod,
+        payment_status: order.paymentStatus,
+        total: Number(order.totalAmount).toFixed(2),
+        created_at: order.createdAt.toISOString(),
+        items_summary: order.items.map((item) => ({
+          product_name: item.product.name,
+          qty: item.quantity
+        }))
       }))
     };
   }
@@ -773,13 +948,34 @@ export class OrderService {
       case 'status': {
         const newStatus = body.status as OrderStatus;
 
-        // Customer can only cancel their own PENDING order
-        if (user.role === Role.CUSTOMER) {
+        // Customer can only cancel their own PENDING order (before E-Wallet payment proof is submitted/verified)
+        if (user.role !== Role.ADMIN) {
           if (newStatus !== OrderStatus.CANCELLED) {
-            throw { status: 403, message: 'Customers cannot change order fulfillment status' };
+            throw { status: 403, code: 'FORBIDDEN', message: 'Customers cannot change order fulfillment status' };
           }
           if (order.userId !== user.id) {
-            throw { status: 404, message: 'Order not found' };
+            throw { status: 404, code: 'NOT_FOUND', message: 'Order not found' };
+          }
+          if (order.orderStatus === OrderStatus.CANCELLED) {
+            throw { status: 409, code: 'ALREADY_CANCELLED', message: 'Order is already cancelled' };
+          }
+          if (order.orderStatus !== OrderStatus.PENDING) {
+            throw {
+              status: 409,
+              code: 'ORDER_NOT_CANCELLABLE',
+              message: 'Orders can only be cancelled while still Pending.'
+            };
+          }
+          if (
+            order.paymentStatus === PaymentStatus.SUBMITTED ||
+            order.paymentStatus === PaymentStatus.VERIFIED ||
+            order.paymentStatus === PaymentStatus.COMPLETED
+          ) {
+            throw {
+              status: 409,
+              code: 'PAYMENT_ALREADY_SUBMITTED',
+              message: 'Contact the station to cancel this order after payment proof has been submitted or verified.'
+            };
           }
         }
 
@@ -812,72 +1008,159 @@ export class OrderService {
         // Cancellation handling
         if (newStatus === OrderStatus.CANCELLED) {
           if (order.orderStatus === OrderStatus.CANCELLED) {
-            throw { status: 409, message: 'Repeated cancellation rejected' };
+            throw { status: 409, code: 'ALREADY_CANCELLED', message: 'Repeated cancellation rejected' };
           }
 
-          const cancelResult = await prisma.$transaction(async (tx) => {
-            const refundRequired = order.paymentStatus === PaymentStatus.VERIFIED || order.paymentStatus === PaymentStatus.COMPLETED;
-            const targetPaymentStatus = refundRequired ? PaymentStatus.REFUND_REQUIRED : order.paymentStatus;
+          const rawReason =
+            typeof body.reason === 'string' && body.reason.trim()
+              ? body.reason
+              : typeof body.notes === 'string'
+              ? body.notes
+              : '';
+          const cleanCancelReason =
+            sanitize(rawReason).slice(0, 300) ||
+            (user.role === Role.CUSTOMER ? 'Cancelled by customer' : 'Cancelled by administrator');
 
+          const cancelResult = await prisma.$transaction(async (tx) => {
+            // Canonical lock order: lock SalesOrder row FOR UPDATE first, then Products FOR UPDATE in ascending productId order.
+            // Checkout locks only Products FOR UPDATE (never SalesOrder), preventing circular deadlock against concurrent cancel/prepare.
+            const lockedOrderRows = await tx.$queryRaw<
+              Array<{
+                id: number;
+                userId: number;
+                orderNumber: string;
+                orderStatus: string;
+                paymentStatus: string;
+                notes: string | null;
+              }>
+            >`
+              SELECT id, "userId", "orderNumber", "orderStatus"::text AS "orderStatus", "paymentStatus"::text AS "paymentStatus", notes
+              FROM sales_orders
+              WHERE id = ${id}
+              FOR UPDATE
+            `;
+
+            const lockedOrder = lockedOrderRows?.[0];
+            if (!lockedOrder) {
+              throw { status: 404, code: 'NOT_FOUND', message: 'Order not found' };
+            }
+            if (lockedOrder.orderStatus === OrderStatus.CANCELLED) {
+              throw { status: 409, code: 'ALREADY_CANCELLED', message: 'Repeated cancellation rejected' };
+            }
+            if (lockedOrder.orderStatus === OrderStatus.COMPLETED) {
+              throw { status: 409, code: 'ORDER_NOT_CANCELLABLE', message: 'Completed orders cannot be cancelled' };
+            }
+
+            if (user.role !== Role.ADMIN) {
+              if (lockedOrder.orderStatus !== OrderStatus.PENDING) {
+                throw {
+                  status: 409,
+                  code: 'ORDER_NOT_CANCELLABLE',
+                  message: 'Order is no longer Pending and cannot be cancelled.'
+                };
+              }
+              if (
+                lockedOrder.paymentStatus === PaymentStatus.SUBMITTED ||
+                lockedOrder.paymentStatus === PaymentStatus.VERIFIED ||
+                lockedOrder.paymentStatus === PaymentStatus.COMPLETED
+              ) {
+                throw {
+                  status: 409,
+                  code: 'PAYMENT_ALREADY_SUBMITTED',
+                  message: 'Contact the station to cancel this order after payment proof has been submitted or verified.'
+                };
+              }
+            }
+
+            const refundRequired =
+              lockedOrder.paymentStatus === PaymentStatus.VERIFIED ||
+              lockedOrder.paymentStatus === PaymentStatus.COMPLETED;
+            const targetPaymentStatus = refundRequired
+              ? PaymentStatus.REFUND_REQUIRED
+              : (lockedOrder.paymentStatus as PaymentStatus);
+
+            const now = new Date();
             const updated = await tx.salesOrder.update({
               where: { id },
               data: {
                 orderStatus: OrderStatus.CANCELLED,
                 paymentStatus: targetPaymentStatus,
-                notes: sanitize(body.notes) || 'Cancelled'
+                cancelledAt: now,
+                cancelledById: user.id,
+                cancelReason: cleanCancelReason,
+                notes: cleanCancelReason
               }
             });
 
             await tx.auditLog.create({
               data: {
                 userId: user.id,
-                action: targetPaymentStatus === PaymentStatus.REFUND_REQUIRED ? 'PAYMENT_STATUS_REFUND_REQUIRED' : 'ORDER_CANCELLED',
+                action:
+                  user.role === Role.CUSTOMER
+                    ? 'ORDER_CANCELLED_BY_CUSTOMER'
+                    : targetPaymentStatus === PaymentStatus.REFUND_REQUIRED
+                    ? 'PAYMENT_STATUS_REFUND_REQUIRED'
+                    : 'ORDER_CANCELLED',
                 entity: 'SalesOrder',
                 entityId: id,
                 details: JSON.stringify({
-                  orderNumber: order.orderNumber,
-                  previousPaymentStatus: order.paymentStatus,
+                  orderNumber: lockedOrder.orderNumber,
+                  cancelledByRole: user.role,
+                  previousPaymentStatus: lockedOrder.paymentStatus,
                   newPaymentStatus: targetPaymentStatus,
-                  notes: updated.notes
+                  reason: cleanCancelReason
                 })
               }
             });
 
-            // Return reserved stock once
-            for (const item of order.items) {
-              const rows: any[] = await tx.$queryRaw`
-                SELECT id, stock FROM products WHERE id = ${item.productId} FOR UPDATE
-              `;
-              if (rows && rows.length > 0) {
-                const cur = Number(rows[0].stock);
-                const restored = cur + item.quantity;
-                await tx.product.update({
-                  where: { id: item.productId },
-                  data: { stock: restored }
-                });
-                await tx.stockMovement.create({
-                  data: {
-                    productId: item.productId,
-                    movementType: MovementType.ORDER_RELEASE,
-                    quantityChange: item.quantity,
-                    previousBalance: cur,
-                    newBalance: restored,
-                    referenceId: id,
-                    userId: user.id,
-                    notes: `Cancellation stock return for order #${order.orderNumber}`
-                  }
-                });
+            // Return reserved stock strictly once (protected by existing ORDER_RELEASE check)
+            const existingRelease = await tx.stockMovement.findFirst({
+              where: {
+                referenceId: id,
+                movementType: MovementType.ORDER_RELEASE
+              },
+              select: { id: true }
+            });
+
+            if (!existingRelease) {
+              const sortedItems = [...order.items].sort((a, b) => a.productId - b.productId);
+              for (const item of sortedItems) {
+                const rows: any[] = await tx.$queryRaw`
+                  SELECT id, stock FROM products WHERE id = ${item.productId} FOR UPDATE
+                `;
+                if (rows && rows.length > 0) {
+                  const cur = Number(rows[0].stock);
+                  const restored = cur + item.quantity;
+                  await tx.product.update({
+                    where: { id: item.productId },
+                    data: { stock: restored }
+                  });
+                  await tx.stockMovement.create({
+                    data: {
+                      productId: item.productId,
+                      movementType: MovementType.ORDER_RELEASE,
+                      quantityChange: item.quantity,
+                      previousBalance: cur,
+                      newBalance: restored,
+                      referenceId: id,
+                      userId: user.id,
+                      notes: `Cancellation stock return for order #${lockedOrder.orderNumber}`
+                    }
+                  });
+                }
               }
             }
 
             return {
               id: updated.id,
               status: updated.orderStatus,
-              payment_status: updated.paymentStatus
+              payment_status: updated.paymentStatus,
+              cancelled_at: updated.cancelledAt?.toISOString() || null,
+              cancel_reason: updated.cancelReason || cleanCancelReason
             };
           });
 
-          // Notify customer of order cancellation
+          // Notify customer once of order cancellation
           (async () => {
             try {
               if (order.user?.email) {
@@ -887,8 +1170,9 @@ export class OrderService {
                   customerEmail: order.user.email,
                   customerName: order.customerName || order.user.name || 'Customer',
                   status: 'CANCELLED',
-                  notes: sanitize(body.notes) || 'Order Cancelled',
-                  userId: order.userId
+                  notes: cleanCancelReason,
+                  userId: order.userId,
+                  idempotencyKey: `order-cancel-${id}`
                 });
               }
             } catch (err: any) {
@@ -915,6 +1199,34 @@ export class OrderService {
           }
 
           const completedResult = await prisma.$transaction(async (tx) => {
+            const lockedRows = await tx.$queryRaw<Array<{ id: number; orderStatus: string; paymentStatus: string; paymentMethod: string }>>`
+              SELECT id, "orderStatus"::text AS "orderStatus", "paymentStatus"::text AS "paymentStatus", "paymentMethod"::text AS "paymentMethod"
+              FROM sales_orders
+              WHERE id = ${id}
+              FOR UPDATE
+            `;
+            const locked = lockedRows?.[0];
+            if (!locked) {
+              throw { status: 404, message: 'Order not found' };
+            }
+            if (locked.orderStatus === OrderStatus.COMPLETED) {
+              return {
+                id: locked.id,
+                status: locked.orderStatus,
+                payment_status: locked.paymentStatus
+              };
+            }
+            if (locked.orderStatus === OrderStatus.CANCELLED || locked.orderStatus === OrderStatus.VOIDED) {
+              throw { status: 409, code: 'ALREADY_CANCELLED', message: 'Cancelled orders cannot be completed' };
+            }
+            const lockedIsEWallet =
+              locked.paymentMethod === PaymentMethod.E_WALLET ||
+              locked.paymentMethod === PaymentMethod.GCASH_QR ||
+              locked.paymentMethod === PaymentMethod.MAYA_QR;
+            if (lockedIsEWallet && locked.paymentStatus !== PaymentStatus.VERIFIED && locked.paymentStatus !== PaymentStatus.COMPLETED) {
+              throw { status: 409, code: 'PAYMENT_NOT_VERIFIED', message: 'Unverified QR cannot enter fulfillment' };
+            }
+
             const updated = await tx.salesOrder.update({
               where: { id },
               data: {
@@ -932,9 +1244,9 @@ export class OrderService {
                 entityId: id,
                 details: JSON.stringify({
                   orderNumber: order.orderNumber,
-                  previousPaymentStatus: order.paymentStatus,
+                  previousPaymentStatus: locked.paymentStatus,
                   newPaymentStatus: 'COMPLETED',
-                  paymentMethod: order.paymentMethod,
+                  paymentMethod: locked.paymentMethod,
                   notes: updated.notes
                 })
               }
@@ -970,13 +1282,39 @@ export class OrderService {
           return completedResult;
         }
 
-        // Advance to CONFIRMED, PREPARING, READY_FOR_PICKUP, or OUT_FOR_DELIVERY
-        const updated = await prisma.salesOrder.update({
-          where: { id },
-          data: {
-            orderStatus: newStatus,
-            notes: sanitize(body.notes) || order.notes
+        // Advance to CONFIRMED, PREPARING, READY_FOR_PICKUP, or OUT_FOR_DELIVERY under row lock
+        const updated = await prisma.$transaction(async (tx) => {
+          const lockedRows = await tx.$queryRaw<Array<{ id: number; orderStatus: string; paymentStatus: string; paymentMethod: string }>>`
+            SELECT id, "orderStatus"::text AS "orderStatus", "paymentStatus"::text AS "paymentStatus", "paymentMethod"::text AS "paymentMethod"
+            FROM sales_orders
+            WHERE id = ${id}
+            FOR UPDATE
+          `;
+          const locked = lockedRows?.[0];
+          if (!locked) {
+            throw { status: 404, message: 'Order not found' };
           }
+          if (locked.orderStatus === OrderStatus.CANCELLED || locked.orderStatus === OrderStatus.VOIDED) {
+            throw { status: 409, code: 'ALREADY_CANCELLED', message: 'Cancelled orders cannot enter fulfillment' };
+          }
+          if (locked.orderStatus === OrderStatus.COMPLETED) {
+            throw { status: 409, message: 'Completed orders cannot change status' };
+          }
+          const lockedIsEWallet =
+            locked.paymentMethod === PaymentMethod.E_WALLET ||
+            locked.paymentMethod === PaymentMethod.GCASH_QR ||
+            locked.paymentMethod === PaymentMethod.MAYA_QR;
+          if (lockedIsEWallet && locked.paymentStatus !== PaymentStatus.VERIFIED && locked.paymentStatus !== PaymentStatus.COMPLETED) {
+            throw { status: 409, code: 'PAYMENT_NOT_VERIFIED', message: 'Unverified QR cannot enter fulfillment' };
+          }
+
+          return tx.salesOrder.update({
+            where: { id },
+            data: {
+              orderStatus: newStatus,
+              notes: sanitize(body.notes) || order.notes
+            }
+          });
         });
 
         // Notify customer of status change (dispatched/ready for pickup, confirmed)

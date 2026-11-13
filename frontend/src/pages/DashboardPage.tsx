@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { useReports, useInventory, useSales } from '../api/client.js';
 import { useAuth } from '../auth/AuthContext.js';
 import { Link } from 'react-router-dom';
-import { TrendingUp, TrendingDown, Minus, ArrowRight } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, ArrowRight, PhilippinePeso } from 'lucide-react';
 import { AdminPageHeader } from '../components/AdminPageHeader.js';
+import { PendingOrdersTile } from '../components/PendingOrdersTile.js';
+import { formatPeso, formatSignedPeso } from '../utils/currency.js';
 
 type Period = 'today' | 'week' | 'month' | 'year' | 'all' | 'custom';
 
@@ -160,8 +162,8 @@ export const DashboardPage: React.FC = () => {
           </span>
         }
         actions={
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="bg-white/95 rounded-full border border-[#bbdefb] p-1 shadow-xs inline-flex items-center gap-1 max-w-full overflow-x-auto scrollbar-none">
+          <div className="flex flex-wrap items-center gap-3 min-w-0 max-w-full">
+            <div className="bg-white/95 rounded-2xl sm:rounded-full border border-[#bbdefb] p-1 shadow-xs flex flex-wrap items-center gap-1 max-w-full min-w-0">
               {[
                 { id: 'today', label: 'Today' },
                 { id: 'week', label: 'This Week' },
@@ -215,12 +217,10 @@ export const DashboardPage: React.FC = () => {
       <div className="stat-grid" id="statGrid">
         <div className="stat-card">
           <div className="stat-label">{periodLabels[period].title}</div>
-          <div className="stat-value">₱{Number(periodRevenue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+          <div className="stat-value">{formatPeso(periodRevenue)}</div>
           <div className="stat-sub">{periodTransactions} transaction{periodTransactions !== 1 ? 's' : ''} in period</div>
           <div className="stat-icon icon-blue">
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <text x="12" y="18.5" textAnchor="middle" fontSize="19" fontWeight="700" fontFamily="Poppins,Arial,sans-serif">₱</text>
-            </svg>
+            <PhilippinePeso className="w-5 h-5" />
           </div>
         </div>
 
@@ -252,8 +252,8 @@ export const DashboardPage: React.FC = () => {
           </div>
           <div className="stat-value">
             {period === 'month'
-              ? `₱${Number(periodRevenue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-              : `₱${periodTransactions > 0 ? (periodRevenue / periodTransactions).toFixed(2) : '0.00'}`}
+              ? formatPeso(periodRevenue)
+              : formatPeso(periodTransactions > 0 ? periodRevenue / periodTransactions : 0)}
           </div>
           <div className="stat-sub">
             {period === 'month' ? currentMonthName : 'Per completed order'}
@@ -265,6 +265,9 @@ export const DashboardPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* ADMIN PENDING ORDERS TILE */}
+      <PendingOrdersTile />
 
       {/* CHARTS ROW (Sales Breakdown + Forecast & Health) */}
       <div className="grid-2">
@@ -286,12 +289,12 @@ export const DashboardPage: React.FC = () => {
                   return (
                     <div key={d.date} className="flex-1 flex flex-col items-center min-w-0">
                       <span className="text-[10px] font-semibold text-gray-700 mb-1">
-                        ₱{rev.toLocaleString()}
+                        {formatPeso(rev)}
                       </span>
                       <div className="h-36 w-full flex items-end">
                         <div
                           className="bar w-full"
-                          title={`${dateLabel}: ₱${rev.toLocaleString()}`}
+                          title={`${dateLabel}: ${formatPeso(rev)}`}
                           style={{ height: `${pct}%` }}
                         />
                       </div>
@@ -333,13 +336,13 @@ export const DashboardPage: React.FC = () => {
               <div>
                 <div className="text-xs text-gray-500 font-semibold uppercase tracking-wider">7-Day Moving Avg</div>
                 <div className="text-xl font-black text-[#1565c0] mt-1">
-                  ₱{Number(trend.sma).toFixed(2)} <span className="text-xs font-medium text-gray-500">/ day</span>
+                  {formatPeso(trend.sma)} <span className="text-xs font-medium text-gray-500">/ day</span>
                 </div>
               </div>
               <div>
                 <div className="text-xs text-gray-500 font-semibold uppercase tracking-wider">Daily Trend Slope</div>
                 <div className="text-xl font-black text-gray-900 mt-1">
-                  {trend.slope >= 0 ? '+' : ''}₱{Number(trend.slope).toFixed(2)} <span className="text-xs font-medium text-gray-500">/ day</span>
+                  {formatSignedPeso(trend.slope)} <span className="text-xs font-medium text-gray-500">/ day</span>
                 </div>
               </div>
             </div>
@@ -421,7 +424,7 @@ export const DashboardPage: React.FC = () => {
                     </td>
                     <td>{new Date(s.sold_at || s.created_at).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}</td>
                     <td>{s.cashier || s.customer || 'Walk-in'}</td>
-                    <td className="font-bold text-gray-900">₱{Number(s.total).toFixed(2)}</td>
+                    <td className="font-bold text-gray-900">{formatPeso(s.total)}</td>
                     <td>
                       <span className={`badge ${s.status === 'VOIDED' ? 'badge-danger' : 'badge-success'}`}>
                         {s.status === 'VOIDED' ? 'Voided' : 'Completed'}

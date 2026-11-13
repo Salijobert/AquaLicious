@@ -288,12 +288,14 @@ ok(
   'Backend refuses to start in production if JWT_SECRET is missing or < 32 characters'
 );
 
-// 12.2. Confirm local password auth fallback strictly blocked in production
+// 12.2. Confirm local password auth fallback strictly removed / blocked in production
 const authRoutesCode = fs.readFileSync('backend/src/routes/authRoutes.ts', 'utf8');
 ok(
-  (authRoutesCode.includes("if (config.nodeEnv === 'production'") || authRoutesCode.includes("config.nodeEnv === 'production'")) &&
+  configCode.includes("ALLOW_LOCAL_AUTH_FALLBACK === 'true'") &&
+  configCode.includes('FATAL CONFIGURATION ERROR: ALLOW_LOCAL_AUTH_FALLBACK=true is strictly forbidden in production') &&
+  authRoutesCode.includes("code: 'LOCAL_AUTH_DISABLED'") &&
   authRoutesCode.includes('Direct local authentication is disabled in production. Use Firebase authentication.'),
-  'Local authentication fallback is strictly blocked in production (returns 403)'
+  'Local authentication fallback is strictly removed and blocked in production (returns 403 / refuses startup)'
 );
 
 // 12.3. Confirm cleanup dry-run defaults to true when unset

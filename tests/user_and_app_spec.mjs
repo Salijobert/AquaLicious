@@ -306,12 +306,22 @@ async function main() {
   assert(Boolean(manifest.checksum), 'Manifest contains SHA-256 checksum');
   assert(Boolean(manifest.signature), 'Manifest contains digital signature');
 
-  // Verify the ECDSA signature with Node's crypto using public key
+  // Verify the ECDSA signature with Node's crypto using public key (supports IEEE P1363 and DER)
   const publicKeyPem = fs.readFileSync(path.join(rootDir, 'tools', 'keys', 'ota_public_key.pem'), 'utf8');
-  const verify = crypto.createVerify('SHA256');
-  verify.update(`${manifest.version}:${manifest.checksum}`);
-  verify.end();
-  const isValidSignature = verify.verify(publicKeyPem, manifest.signature, 'base64');
+  const payloadBuf = Buffer.from(`${manifest.version}:${manifest.checksum}`);
+  const sigBuf = Buffer.from(manifest.signature, 'base64');
+  let isValidSignature = false;
+  try {
+    isValidSignature = crypto.verify('SHA256', payloadBuf, { key: publicKeyPem, dsaEncoding: 'ieee-p1363' }, sigBuf);
+  } catch {}
+  if (!isValidSignature) {
+    try {
+      const verify = crypto.createVerify('SHA256');
+      verify.update(payloadBuf);
+      verify.end();
+      isValidSignature = verify.verify(publicKeyPem, sigBuf);
+    } catch {}
+  }
   assert(isValidSignature, 'Cryptographic digital signature verified with ECDSA P-256 public key');
 
   // Verify Updater Service logic

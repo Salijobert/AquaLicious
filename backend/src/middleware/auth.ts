@@ -125,7 +125,8 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
       const isAuthorized =
         authorizedUids.length === 0 ||
         authorizedUids.includes(user.firebaseUid) ||
-        ((config.nodeEnv !== 'production' || process.env.ALLOW_LOCAL_AUTH_FALLBACK === 'true') &&
+        (config.nodeEnv === 'test' &&
+          process.env.ALLOW_LOCAL_AUTH_FALLBACK === 'true' &&
           (user.firebaseUid.startsWith('local-') || user.firebaseUid === 'uid-admin'));
 
       if (!isAuthorized) {
@@ -151,7 +152,10 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
     req.user = user;
     next();
   } catch (err: any) {
-    return res.status(401).json({ error: err.message || 'Invalid or expired authentication token' });
+    return res.status(401).json({
+      error: err.message || 'Invalid or expired authentication token',
+      code: err?.code || 'AUTH_TOKEN_INVALID'
+    });
   }
 }
 

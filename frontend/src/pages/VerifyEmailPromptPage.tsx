@@ -1,10 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../auth/AuthContext.js';
 import { auth } from '../auth/firebase.js';
-import { sendEmailVerification } from 'firebase/auth';
 import { resolver } from '../api/multiServerResolver.js';
 import { useNavigate } from 'react-router-dom';
 import { Mail, CheckCircle2, AlertCircle, RefreshCw, LogOut } from 'lucide-react';
+
+function formatManilaClock(date: Date): string {
+  return date.toLocaleTimeString('en-PH', {
+    timeZone: 'Asia/Manila',
+    hour: 'numeric',
+    minute: '2-digit'
+  });
+}
 
 export const VerifyEmailPromptPage: React.FC = () => {
   const { user, refreshProfile, logout } = useAuth();
@@ -13,6 +20,7 @@ export const VerifyEmailPromptPage: React.FC = () => {
   const [cooldown, setCooldown] = useState<number>(0);
   const [isResending, setIsResending] = useState<boolean>(false);
   const [isChecking, setIsChecking] = useState<boolean>(false);
+  const [sentAtLabel, setSentAtLabel] = useState<string>(() => formatManilaClock(new Date()));
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   // Tick 60-second countdown cooldown
@@ -37,28 +45,27 @@ export const VerifyEmailPromptPage: React.FC = () => {
     }
 
     try {
-      // 1. Direct Firebase email dispatch if Firebase session active
-      if (auth.currentUser) {
-        try {
-          await sendEmailVerification(auth.currentUser, {
-            url: 'https://aqualicious.vercel.app/verify-email-complete'
-          });
-        } catch (fbErr: any) {
-          console.warn('Firebase sendEmailVerification notice:', fbErr.message);
+      // Single backend email dispatch (Firebase Admin SDK oobCode -> custom /verify-email-complete link)
+      const res = await resolver.request<{ ok?: boolean; sentAt?: string; retryAfterSeconds?: number }>(
+        '/api/auth/resend-verification',
+        {
+          method: 'POST',
+          data: { email: emailToSend }
         }
-      }
-
-      // 2. Backend email service dispatch
-      await resolver.request('/api/auth/resend-verification', {
-        method: 'POST',
-        data: { email: emailToSend }
-      });
+      );
+      const sentTime = res?.sentAt ? new Date(res.sentAt) : new Date();
+      const formatted = formatManilaClock(sentTime);
+      setSentAtLabel(formatted);
       setMessage({
-        text: 'A new verification link has been sent to your inbox. Please check your spam/junk folder as well.',
+        text: `Verification email sent at ${formatted}. Only the newest link works—if you requested multiple emails, open the latest one.`,
         type: 'success'
       });
-      setCooldown(60);
+      setCooldown(Number(res?.retryAfterSeconds) || 60);
     } catch (err: any) {
+      const retrySec = Number(err?.response?.data?.retryAfterSeconds || err?.retryAfterSeconds || 0);
+      if (retrySec > 0) {
+        setCooldown(retrySec);
+      }
       setMessage({
         text: err.message || 'Failed to resend verification email. Please try again later.',
         type: 'error'
@@ -73,10 +80,13 @@ export const VerifyEmailPromptPage: React.FC = () => {
     setMessage(null);
 
     try {
-      // 1. Reload the Firebase user record to fetch updated emailVerified status
+      // 1. Reload the Firebase user record and force-refresh ID token with updated email_verified claim
       if (auth.currentUser) {
         await auth.currentUser.reload();
-        await auth.currentUser.getIdToken(true);
+        const freshToken = await auth.currentUser.getIdToken(true);
+        if (freshToken) {
+          resolver.setToken(freshToken);
+        }
       }
 
       // 2. Refresh profile from backend
@@ -134,6 +144,10 @@ export const VerifyEmailPromptPage: React.FC = () => {
           We've sent a verification link from <strong className="text-slate-800">aqualiciousadmin@gmail.com</strong> to:
           <br />
           <span className="font-bold text-[#1565c0] text-sm break-all">{displayEmail}</span>
+          <br />
+          <span className="inline-block mt-1.5 text-[11px] text-slate-500 font-medium">
+            Sent at {sentAtLabel} • Use only the newest link if you resent
+          </span>
         </p>
 
         <div className="bg-blue-50/70 border border-blue-200/60 rounded-xl p-3.5 mb-5 text-[11px] text-blue-900 leading-normal">

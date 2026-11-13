@@ -1,199 +1,387 @@
-import React, { useEffect, useState } from 'react';
-import { applyActionCode } from 'firebase/auth';
+import React, { useEffect, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { applyActionCode, checkActionCode } from 'firebase/auth';
 import { auth } from '../auth/firebase.js';
+import { useAuth } from '../auth/AuthContext.js';
 import { resolver } from '../api/multiServerResolver.js';
-import { Link } from 'react-router-dom';
-import { CheckCircle2, AlertCircle, RefreshCw, ArrowRight } from 'lucide-react';
+import { MailCheck, ShieldAlert, Clock, CheckCircle2, RefreshCw, ArrowRight } from 'lucide-react';
+
+type VerificationStatus =
+  | 'checking'
+  | 'ready'
+  | 'confirming'
+  | 'verified'
+  | 'already-verified'
+  | 'expired'
+  | 'invalid';
+
+interface ParsedParams {
+  mode: string;
+  oobCode: string;
+  legacyToken: string;
+}
+
+function extractParamsFromLocation(search: string, hash: string): ParsedParams {
+  const merged = new URLSearchParams(search || '');
+
+  // Support Capacitor HashRouter links (e.g., #/verify-email-complete?mode=verifyEmail&oobCode=...)
+  if (hash && hash.includes('?')) {
+    const hashQuery = hash.slice(hash.indexOf('?') + 1);
+    const hashParams = new URLSearchParams(hashQuery);
+    hashParams.forEach((value, key) => {
+      if (!merged.has(key)) {
+        merged.set(key, value);
+      }
+    });
+  }
+
+  return {
+    mode: (merged.get('mode') || '').trim(),
+    oobCode: (merged.get('oobCode') || '').trim(),
+    legacyToken: (merged.get('token') || '').trim()
+  };
+}
+
+function maskEmailAddress(email: string): string {
+  const clean = (email || '').trim();
+  const atIdx = clean.indexOf('@');
+  if (atIdx <= 0) return clean || 'your account email';
+  const local = clean.slice(0, atIdx);
+  const domain = clean.slice(atIdx + 1);
+  const visible = local.length <= 2 ? local.slice(0, 1) : local.slice(0, 2);
+  return `${visible}***@${domain}`;
+}
 
 export const VerifyEmailCompletePage: React.FC = () => {
-  const [status, setStatus] = useState<'verifying' | 'success' | 'error'>('verifying');
-  const [errorMessage, setErrorMessage] = useState<string>('');
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { user, refreshProfile } = useAuth();
+
+  const [status, setStatus] = useState<VerificationStatus>('checking');
+  const [maskedEmail, setMaskedEmail] = useState<string>('');
+  const [rawEmail, setRawEmail] = useState<string>('');
+  const [errorHeadline, setErrorHeadline] = useState<string>('');
+  const [errorDetail, setErrorDetail] = useState<string>('');
+
+  const checkedKeyRef = useRef<string>('');
+  const confirmLockRef = useRef<boolean>(false);
+
+  const parsed = extractParamsFromLocation(
+    window.location.search || location.search,
+    window.location.hash
+  );
 
   useEffect(() => {
-    let isMounted = true;
+    const checkKey = `${parsed.mode}|${parsed.oobCode}|${parsed.legacyToken}`;
+    if (checkedKeyRef.current === checkKey) {
+      return;
+    }
+    checkedKeyRef.current = checkKey;
 
-    async function handleVerification() {
-      // Support standard search params and Capacitor HashRouter params
-      const rawSearch = window.location.search || (window.location.hash.includes('?') ? '?' + window.location.hash.split('?')[1] : '');
-      const params = new URLSearchParams(rawSearch);
-      const oobCode = params.get('oobCode');
-      const email = params.get('email');
-      const token = params.get('token');
+    let cancelled = false;
 
-      // Helper to check if already verified in Firebase or backend
-      const checkAlreadyVerified = async (): Promise<boolean> => {
-        try {
-          if (auth.currentUser) {
-            await auth.currentUser.reload();
-            if (auth.currentUser.emailVerified) {
-              return true;
-            }
-          }
-          if (email) {
-            const res = await resolver.request<{ verified: boolean }>(`/api/auth/verification-status?email=${encodeURIComponent(email)}`);
-            if (res && res.verified) {
-              return true;
-            }
-          }
-        } catch {
-          // ignore check errors
+    const inspectLink = async () => {
+      setStatus('checking');
+      setErrorHeadline('');
+      setErrorDetail('');
+
+      // Reject legacy HMAC token links cleanly — only Firebase Action Codes verify emails
+      if (parsed.legacyToken && !parsed.oobCode) {
+        if (!cancelled) {
+          setErrorHeadline('Verification Failed');
+          setErrorDetail(
+            'This older verification link format is no longer supported. Please sign in and tap Resend Verification Email to receive a new link.'
+          );
+          setStatus('invalid');
         }
-        return false;
-      };
-
-      // 1. If server signed token is present, verify via backend authority
-      if (token && email) {
-        try {
-          const res = await resolver.request<{ success: boolean }>('/api/auth/verify-email-token', {
-            method: 'POST',
-            data: { email, token }
-          });
-          if (res && res.success) {
-            if (oobCode && !oobCode.startsWith('code-')) {
-              applyActionCode(auth, oobCode).catch(() => {});
-            }
-            if (auth.currentUser) {
-              await auth.currentUser.reload().catch(() => {});
-            }
-            if (isMounted) setStatus('success');
-            return;
-          }
-        } catch (tokenErr: any) {
-          console.warn('Backend token verification error:', tokenErr.message);
-        }
-      }
-
-      // 2. If Firebase action code is present, verify via Firebase Web SDK
-      if (oobCode && !oobCode.startsWith('code-')) {
-        try {
-          await applyActionCode(auth, oobCode);
-          if (auth.currentUser) {
-            await auth.currentUser.reload();
-            const idTok = await auth.currentUser.getIdToken(true);
-            resolver.setToken(idTok);
-            await resolver.request('/api/auth').catch(() => {});
-          }
-          if (email) {
-            await resolver.request<{ verified: boolean }>(`/api/auth/verification-status?email=${encodeURIComponent(email)}`).catch(() => {});
-          }
-          if (isMounted) setStatus('success');
-          return;
-        } catch (err: any) {
-          console.warn('Firebase applyActionCode error:', err.code, err.message);
-          // Check if failed because it's already verified / used
-          const alreadyVerified = await checkAlreadyVerified();
-          if (alreadyVerified && isMounted) {
-            setStatus('success');
-            return;
-          }
-          if (isMounted) {
-            setStatus('error');
-            if (err.code === 'auth/invalid-action-code') {
-              setErrorMessage('This verification link is invalid or has already been used.');
-            } else if (err.code === 'auth/expired-action-code') {
-              setErrorMessage('This verification link has expired. Please request a new one.');
-            } else {
-              setErrorMessage(err.message || 'Verification failed. Please try requesting a new link.');
-            }
-          }
-          return;
-        }
-      }
-
-      // 3. If no oobCode or fallback link, check if the account is already verified
-      const alreadyVerified = await checkAlreadyVerified();
-      if (alreadyVerified && isMounted) {
-        setStatus('success');
         return;
       }
 
-      if (isMounted) {
-        setStatus('error');
-        setErrorMessage('No valid verification action code was found in the link.');
+      if (!parsed.oobCode) {
+        if (auth.currentUser) {
+          try {
+            await auth.currentUser.reload();
+            if (auth.currentUser.emailVerified) {
+              if (!cancelled) {
+                setMaskedEmail(maskEmailAddress(auth.currentUser.email || ''));
+                setStatus('already-verified');
+              }
+              return;
+            }
+          } catch {
+            // Fall through to invalid state if reload fails
+          }
+        }
+        if (!cancelled) {
+          setErrorHeadline('Verification Failed');
+          setErrorDetail(
+            'No valid verification code was found in this link. Please open the newest verification email from AquaLicious or request a new one.'
+          );
+          setStatus('invalid');
+        }
+        return;
       }
-    }
 
-    handleVerification();
+      if (parsed.mode && parsed.mode !== 'verifyEmail') {
+        if (!cancelled) {
+          setErrorHeadline('Verification Failed');
+          setErrorDetail('This link is not an email verification link.');
+          setStatus('invalid');
+        }
+        return;
+      }
+
+      try {
+        // Non-consuming validation only: email link scanners/previews and React StrictMode cannot burn this code
+        const info = await checkActionCode(auth, parsed.oobCode);
+        const emailFromCode = info?.data?.email || '';
+        const masked = maskEmailAddress(emailFromCode);
+
+        if (auth.currentUser) {
+          try {
+            await auth.currentUser.reload();
+            if (
+              auth.currentUser.emailVerified &&
+              (!emailFromCode || auth.currentUser.email?.toLowerCase() === emailFromCode.toLowerCase())
+            ) {
+              if (!cancelled) {
+                setMaskedEmail(masked);
+                setRawEmail(emailFromCode);
+                setStatus('already-verified');
+              }
+              return;
+            }
+          } catch {
+            // Continue showing explicit confirm button
+          }
+        }
+
+        if (!cancelled) {
+          setRawEmail(emailFromCode);
+          setMaskedEmail(masked);
+          setStatus('ready');
+        }
+      } catch (err: any) {
+        const code = err?.code || '';
+        if (auth.currentUser) {
+          try {
+            await auth.currentUser.reload();
+            if (auth.currentUser.emailVerified) {
+              if (!cancelled) {
+                setMaskedEmail(maskEmailAddress(auth.currentUser.email || ''));
+                setStatus('already-verified');
+              }
+              return;
+            }
+          } catch {
+            // Fall through to friendly error state
+          }
+        }
+
+        if (!cancelled) {
+          if (code === 'auth/expired-action-code') {
+            setErrorHeadline('Verification Link Expired');
+            setErrorDetail(
+              'This verification link has expired. Request a new link from your account and make sure to open only the newest email.'
+            );
+            setStatus('expired');
+          } else {
+            setErrorHeadline('Verification Failed');
+            setErrorDetail(
+              'This verification link is invalid or has already been used. If you already verified your email, try signing in; otherwise request a new link.'
+            );
+            setStatus('invalid');
+          }
+        }
+      }
+    };
+
+    void inspectLink();
 
     return () => {
-      isMounted = false;
+      cancelled = true;
     };
-  }, []);
+  }, [parsed.mode, parsed.oobCode, parsed.legacyToken]);
+
+  const handleConfirmVerify = async () => {
+    if (!parsed.oobCode || confirmLockRef.current || status === 'confirming') {
+      return;
+    }
+    confirmLockRef.current = true;
+    setStatus('confirming');
+    setErrorHeadline('');
+    setErrorDetail('');
+
+    try {
+      await applyActionCode(auth, parsed.oobCode);
+
+      if (auth.currentUser) {
+        try {
+          await auth.currentUser.reload();
+          const freshToken = await auth.currentUser.getIdToken(true);
+          if (freshToken) {
+            resolver.setToken(freshToken);
+          }
+          await refreshProfile();
+        } catch {
+          // Non-fatal: user is verified in Firebase; next API call / sign-in syncs backend
+        }
+      }
+
+      setStatus('verified');
+    } catch (err: any) {
+      const code = err?.code || '';
+      if (auth.currentUser) {
+        try {
+          await auth.currentUser.reload();
+          if (auth.currentUser.emailVerified) {
+            setStatus('already-verified');
+            return;
+          }
+        } catch {
+          // Proceed to error message
+        }
+      }
+
+      if (code === 'auth/expired-action-code') {
+        setErrorHeadline('Verification Link Expired');
+        setErrorDetail(
+          'This verification link has expired before completion. Please sign in and request a fresh verification link.'
+        );
+        setStatus('expired');
+      } else {
+        setErrorHeadline('Verification Failed');
+        setErrorDetail(
+          'This verification link is invalid or was already used. If you already confirmed your email, sign in to continue.'
+        );
+        setStatus('invalid');
+      }
+    } finally {
+      confirmLockRef.current = false;
+    }
+  };
+
+  const targetAfterVerify = user || auth.currentUser ? '/' : '/login';
+  const targetLabel = user || auth.currentUser ? 'Continue to AquaLicious' : 'Go to Sign In';
 
   return (
     <div
-      className="min-h-screen flex flex-col justify-center items-center px-4 py-12"
-      style={{ background: 'linear-gradient(180deg, #e3eefa 0%, #d3e4f6 100%)' }}
+      className="min-h-screen flex flex-col justify-center items-center px-4 py-10"
+      style={{
+        background: 'linear-gradient(180deg, #e3eefa 0%, #d3e4f6 100%)',
+        paddingTop: 'calc(2.5rem + var(--safe-top, 0px))',
+        paddingBottom: 'calc(2.5rem + var(--safe-bottom, 0px))'
+      }}
     >
-      <div className="card w-full max-w-md bg-white shadow-xl rounded-2xl border border-gray-200 p-8 text-center">
-        <div className="flex justify-center mb-4">
-          <div className="w-12 h-12 rounded-full bg-[#1565c0] flex items-center justify-center text-white shadow-md">
-            <svg className="w-6 h-6 fill-white" viewBox="0 0 24 24">
-              <path d="M12 2C8 7 4 10.5 4 14a8 8 0 0016 0c0-3.5-4-7-8-12z" />
-            </svg>
-          </div>
-        </div>
-        <h2 className="font-serif text-2xl font-bold text-[#0b3d91] tracking-tight mb-1">
-          AquaLicious
-        </h2>
-        <p className="text-xs text-gray-500 uppercase font-semibold tracking-wider mb-6">
-          Account Verification
+      <div className="card w-full max-w-md bg-white shadow-xl rounded-2xl border border-slate-200 p-6 sm:p-8 text-center">
+        <p className="text-[11px] font-bold uppercase tracking-widest text-[#1565c0] mb-3">
+          EMAIL VERIFICATION
         </p>
 
-        {status === 'verifying' && (
-          <div className="py-8 flex flex-col items-center gap-3">
-            <RefreshCw className="w-8 h-8 text-[#1565c0] animate-spin" />
-            <p className="text-sm font-semibold text-slate-700">Verifying your email address...</p>
-            <p className="text-xs text-slate-500">Please wait while we confirm your link.</p>
+        {status === 'checking' && (
+          <div className="py-6 space-y-4">
+            <div className="w-14 h-14 mx-auto rounded-full bg-blue-50 flex items-center justify-center text-[#1565c0]">
+              <RefreshCw className="w-7 h-7 animate-spin" />
+            </div>
+            <h1 className="font-serif text-xl font-bold text-slate-900">
+              Checking Your Verification Link
+            </h1>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              Validating your verification code without consuming it...
+            </p>
           </div>
         )}
 
-        {status === 'success' && (
-          <div className="py-4 space-y-4">
-            <div className="w-16 h-16 rounded-full bg-green-100 text-green-600 flex items-center justify-center mx-auto">
-              <CheckCircle2 className="w-9 h-9" />
+        {(status === 'ready' || status === 'confirming') && (
+          <div className="space-y-4">
+            <div className="w-14 h-14 mx-auto rounded-full bg-blue-50 flex items-center justify-center text-[#1565c0]">
+              <MailCheck className="w-7 h-7" />
             </div>
-            <div>
-              <h3 className="text-lg font-bold text-slate-900">Email Verified Successfully!</h3>
-              <p className="text-xs text-slate-600 mt-2 leading-relaxed">
-                Your email address has been verified. If you are using the <strong>AquaLicious mobile app</strong>, you can switch back to the app now and tap <strong>"I've Verified"</strong>.
-              </p>
-              <p className="text-xs text-slate-500 mt-1">
-                You can also sign in to your account directly on the web.
-              </p>
-            </div>
+            <h1 className="font-serif text-2xl font-bold text-[#0b3d91]">
+              Confirm Your Email
+            </h1>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              Tap the button below to verify{' '}
+              <strong className="text-slate-900 break-all" title={rawEmail || undefined}>
+                {maskedEmail || 'your email address'}
+              </strong>
+              .
+            </p>
             <div className="pt-2">
-              <Link
-                to="/login"
-                className="btn btn-primary w-full font-bold shadow flex items-center justify-center gap-2"
+              <button
+                type="button"
+                onClick={handleConfirmVerify}
+                disabled={status === 'confirming'}
+                className="btn btn-primary w-full font-bold shadow flex items-center justify-center gap-2 min-h-[44px]"
               >
-                Sign In to AquaLicious
-                <ArrowRight className="w-4 h-4" />
+                {status === 'confirming' ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Verifying Email...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    Verify my email
+                  </>
+                )}
+              </button>
+            </div>
+            <p className="text-xs text-slate-500">
+              Your verification code stays safe until you press the button above.
+            </p>
+          </div>
+        )}
+
+        {(status === 'verified' || status === 'already-verified') && (
+          <div className="space-y-4">
+            <div className="w-14 h-14 mx-auto rounded-full bg-green-50 flex items-center justify-center text-green-600">
+              <CheckCircle2 className="w-8 h-8" />
+            </div>
+            <h1 className="font-serif text-2xl font-bold text-slate-900">
+              {status === 'already-verified' ? 'Email Already Verified' : 'Email Verified!'}
+            </h1>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              {maskedEmail
+                ? `${maskedEmail} is now verified and ready to place orders on AquaLicious.`
+                : 'Your email address is verified and ready to place orders on AquaLicious.'}
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate(targetAfterVerify, { replace: true })}
+              className="btn btn-primary w-full font-bold shadow flex items-center justify-center gap-2 min-h-[44px]"
+            >
+              <span>{targetLabel}</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {(status === 'expired' || status === 'invalid') && (
+          <div className="space-y-4">
+            <div
+              className={`w-14 h-14 mx-auto rounded-full flex items-center justify-center ${
+                status === 'expired' ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-red-600'
+              }`}
+            >
+              {status === 'expired' ? <Clock className="w-7 h-7" /> : <ShieldAlert className="w-7 h-7" />}
+            </div>
+            <h1 className="font-serif text-xl font-bold text-slate-900">
+              {errorHeadline || 'Verification Failed'}
+            </h1>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              {errorDetail ||
+                'Unable to verify this link. Please sign in and request a fresh verification email.'}
+            </p>
+            <div className="pt-2 flex flex-col gap-2">
+              <Link
+                to={user || auth.currentUser ? '/verify-email' : '/login'}
+                className="btn btn-primary w-full font-bold min-h-[44px] flex items-center justify-center"
+              >
+                {user || auth.currentUser ? 'Request New Link' : 'Sign In to Request New Link'}
               </Link>
-            </div>
-          </div>
-        )}
-
-        {status === 'error' && (
-          <div className="py-4 space-y-4">
-            <div className="w-16 h-16 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto">
-              <AlertCircle className="w-9 h-9" />
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-slate-900">Verification Link Invalid</h3>
-              <p className="text-xs text-red-600 font-medium mt-2">
-                {errorMessage}
-              </p>
-              <p className="text-xs text-slate-500 mt-1">
-                If your link has expired, sign in or open the AquaLicious app to request a new verification email.
-              </p>
-            </div>
-            <div className="pt-2">
-              <Link
-                to="/login"
-                className="btn btn-outline border-slate-300 w-full font-bold"
-              >
-                Go to Sign In
+              <Link to="/" className="btn btn-ghost btn-sm text-slate-600">
+                Back to Home
               </Link>
             </div>
           </div>

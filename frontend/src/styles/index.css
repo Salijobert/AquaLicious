@@ -8,6 +8,10 @@
   --sab:         env(safe-area-inset-bottom, 0px);
   --sal:         env(safe-area-inset-left, 0px);
   --sar:         env(safe-area-inset-right, 0px);
+  --safe-top:    var(--sat);
+  --safe-bottom: var(--sab);
+  --safe-left:   var(--sal);
+  --safe-right:  var(--sar);
   --blue-deep:   #0b3d91;
   --blue-mid:    #1565c0;
   --blue-bright: #1e88e5;
@@ -232,6 +236,8 @@ body {
 .main {
   margin-left: var(--sidebar-w);
   flex: 1;
+  min-width: 0;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
   min-height: 100vh;
@@ -288,6 +294,15 @@ body {
 .page-content {
   padding: 1.75rem 2rem;
   flex: 1;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+@media (max-width: 640px) {
+  .page-content {
+    padding: 1rem;
+  }
 }
 
 /* CARDS */
@@ -485,79 +500,94 @@ tbody tr:hover {
 .btn-sm { padding: 0.35rem 0.8rem; font-size: 0.78rem; }
 .btn-xs { padding: 0.25rem 0.6rem; font-size: 0.72rem; }
 
-/* MODAL OVERLAY & AQUALICIOUS CUSTOM MODAL BOXES */
-.modal-overlay {
+/* MODAL OVERLAY & UNIFIED AQUALICIOUS DIALOG SYSTEM */
+.aq-modal-backdrop {
   position: fixed;
   inset: 0;
   z-index: 1000;
-  background: rgba(11, 61, 145, 0.4);
+  background: rgba(15, 23, 42, 0.56);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1rem;
+  padding-top: max(var(--safe-top, 0px), 1rem);
+  padding-bottom: max(var(--safe-bottom, 0px), 1rem);
+  padding-left: max(var(--safe-left, 0px), 1rem);
+  padding-right: max(var(--safe-right, 0px), 1rem);
+  box-sizing: border-box;
 }
 
-/* Specificity overrides against DaisyUI's hidden .modal styles */
-.modal-overlay .modal,
-.modal-overlay .aq-modal,
-.aq-modal {
-  pointer-events: auto !important;
-  opacity: 1 !important;
-  visibility: visible !important;
-  position: relative !important;
-  display: block !important;
-  inset: auto !important;
-  margin: auto !important;
-  height: auto !important;
-  max-height: 90vh !important;
-  overflow-y: auto !important;
-  background: white !important;
-  border-radius: var(--radius) !important;
-  padding: 1.75rem !important;
-  width: 100% !important;
-  max-width: 520px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.25), 0 10px 10px -5px rgba(0, 0, 0, 0.1) !important;
-  animation: slideUp 0.25s ease !important;
-  z-index: 1001 !important;
+.aq-modal-card {
+  pointer-events: auto;
+  opacity: 1;
+  visibility: visible;
+  position: relative;
+  margin: 0 auto;
+  width: 100%;
+  background-color: #ffffff !important;
+  color: #0f172a;
+  border-radius: 1rem;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 24px 56px -12px rgba(15, 23, 42, 0.28);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-height: calc(100vh - var(--safe-top, 0px) - var(--safe-bottom, 0px) - 2rem);
+  max-height: calc(100dvh - var(--safe-top, 0px) - var(--safe-bottom, 0px) - 2rem);
+  animation: slideUp 0.2s ease;
+  z-index: 1001;
+  box-sizing: border-box;
+}
+
+.aq-modal-header {
+  flex-shrink: 0;
+  padding: 1.15rem 1.35rem;
+}
+
+.aq-modal-close {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 9999px;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.aq-modal-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1.25rem 1.35rem;
+  background-color: #ffffff;
+  color: #1e293b;
+}
+
+.aq-modal-footer {
+  flex-shrink: 0;
+  padding: 0.9rem 1.35rem;
+  border-top: 1px solid #e2e8f0;
+  background-color: #f8fafc;
+}
+
+@media (max-width: 640px) {
+  .aq-modal-header {
+    padding: 1rem 1rem;
+  }
+  .aq-modal-body {
+    padding: 1rem 1rem;
+  }
+  .aq-modal-footer {
+    padding: 0.85rem 1rem;
+  }
 }
 
 @keyframes slideUp {
   from { opacity: 0; transform: translateY(16px); }
   to   { opacity: 1; transform: translateY(0); }
-}
-
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1.5rem;
-}
-
-.modal-title {
-  font-size: 1.15rem;
-  font-weight: 700;
-  color: var(--gray-900);
-}
-
-.modal-close {
-  background: var(--gray-100);
-  border: none;
-  border-radius: 50%;
-  width: 32px;
-  height: 32px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--gray-500);
-  transition: all 0.2s;
-}
-
-.modal-close:hover {
-  background: var(--gray-200);
-  color: var(--gray-900);
 }
 
 /* SEARCH / FILTER ROW */
@@ -675,6 +705,12 @@ tbody tr:hover {
   animation: morphOrb 6s ease-in-out infinite;
   position: relative;
   overflow: hidden;
+}
+
+@media (max-width: 1023px) {
+  .water-orb {
+    display: none !important;
+  }
 }
 
 .water-orb::before {

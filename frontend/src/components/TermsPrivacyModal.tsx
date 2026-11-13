@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { TERMS_CONTENT, TERMS_VERSION } from '../constants/terms.js';
-import { ShieldCheck, X } from 'lucide-react';
+import { ShieldCheck } from 'lucide-react';
+import { Modal } from './Modal.js';
 
 interface TermsPrivacyModalProps {
   isOpen: boolean;
@@ -93,45 +94,48 @@ export const TermsPrivacyModal: React.FC<TermsPrivacyModalProps> = ({
     }
   }, [isOpen]);
 
-  if (!isOpen) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-[999] flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="terms-modal-title"
-      tabIndex={-1}
-      ref={modalRef}
-    >
-      <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="p-4 sm:p-5 border-b border-gray-200 flex items-center justify-between bg-slate-50 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-[#1565c0] flex items-center justify-center text-white shrink-0 shadow-xs">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 id="terms-modal-title" className="font-serif font-bold text-base sm:text-lg text-[#0b3d91]">
-                Terms & Data Privacy Notice
-              </h2>
-              <p className="text-[11px] text-gray-500 font-medium">
-                Philippine Data Privacy Act of 2012 (RA 10173) · Version {TERMS_VERSION}
-              </p>
-            </div>
-          </div>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      backdropRef={modalRef}
+      size="2xl"
+      zIndexClass="z-[999]"
+      headerVariant="subtle"
+      ariaLabelledBy="terms-modal-title"
+      disableClose={isSubmitting}
+      closeOnBackdrop={false}
+      closeAriaLabel="Close Terms and Privacy Modal"
+      icon={
+        <div className="w-9 h-9 rounded-full bg-[#1565c0] flex items-center justify-center text-white shadow-xs">
+          <ShieldCheck className="w-5 h-5" />
+        </div>
+      }
+      title="Terms & Data Privacy Notice"
+      subtitle={`Philippine Data Privacy Act of 2012 (RA 10173) · Version ${TERMS_VERSION}`}
+      bodyClassName="space-y-5 text-xs text-gray-700 leading-relaxed select-text"
+      footer={
+        <div className="flex items-center justify-end gap-3">
           <button
+            type="button"
             onClick={onClose}
             disabled={isSubmitting}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-            aria-label="Close Terms and Privacy Modal"
+            className="btn btn-outline btn-sm font-semibold px-4"
           >
-            <X className="w-5 h-5" />
+            Cancel
+          </button>
+          <button
+            ref={acceptBtnRef}
+            type="button"
+            disabled={!agreed || isSubmitting}
+            onClick={() => onAccept(TERMS_VERSION)}
+            className="btn btn-primary btn-sm font-bold text-white px-5 shadow-sm"
+          >
+            {isSubmitting ? 'Saving...' : (submitLabel || 'Accept & Register')}
           </button>
         </div>
-
-        {/* Scrollable Body */}
-        <div className="p-4 sm:p-6 overflow-y-auto space-y-5 text-xs text-gray-700 leading-relaxed flex-1 select-text">
+      }
+    >
           <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-900 text-[11px] leading-normal font-medium">
             <strong>Important Notice:</strong> AquaLicious values your trust and complies with Republic Act No. 10173. Please review this notice to understand how your information and payment proofs are collected, stored, and protected.
           </div>
@@ -164,29 +168,6 @@ export const TermsPrivacyModal: React.FC<TermsPrivacyModalProps> = ({
               </span>
             </label>
           </div>
-        </div>
-
-        {/* Footer Actions */}
-        <div className="p-4 sm:p-5 border-t border-gray-200 bg-slate-50 flex items-center justify-end gap-3 shrink-0">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isSubmitting}
-            className="btn btn-outline btn-sm font-semibold px-4"
-          >
-            Cancel
-          </button>
-          <button
-            ref={acceptBtnRef}
-            type="button"
-            disabled={!agreed || isSubmitting}
-            onClick={() => onAccept(TERMS_VERSION)}
-            className="btn btn-primary btn-sm font-bold text-white px-5 shadow-sm"
-          >
-            {isSubmitting ? 'Saving...' : (submitLabel || 'Accept & Register')}
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 };

@@ -77,7 +77,7 @@ async function run() {
     customerToken = custReg.data.token;
   } else {
     // Generate authorized test token if registration verification is needed
-    const { generateTestToken } = await import('../backend/dist/config/index.js');
+    const { generateTestToken } = await import('./helpers/testAuth.mjs');
     customerToken = generateTestToken({
       uid: 'uid-test-customer',
       email: custEmail,
@@ -452,7 +452,8 @@ async function run() {
       '/api/orders',
       {
         items: [{ product_id: archivedProductId, qty: 1 }],
-        fulfillment: 'STORE_PICKUP',
+        fulfillment: 'DELIVERY',
+        address: '123 Test St',
         method: 'CASH',
         request_key: randomUUID()
       },

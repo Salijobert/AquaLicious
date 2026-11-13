@@ -40,6 +40,10 @@ export const NotFoundPage: React.FC = () => {
     <main
       id="main-content"
       className="page-content min-h-[70vh] flex flex-col items-center justify-center p-6 sm:p-12 text-center"
+      style={{
+        paddingTop: 'calc(2rem + var(--safe-top))',
+        paddingBottom: 'calc(2rem + var(--safe-bottom))'
+      }}
     >
       <div className="w-16 h-16 rounded-2xl bg-blue-50 border border-[#bbdefb] text-[#1565c0] flex items-center justify-center mx-auto mb-6 shadow-xs">
         <AlertTriangle className="w-8 h-8 text-[#1565c0]" />

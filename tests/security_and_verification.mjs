@@ -185,7 +185,8 @@ console.log('\n[3] Testing unverified customer restrictions...');
 // Unverified customer blocked from placing order
 const unverifiedOrder = await req('/api/orders', {
   items: [{ product_id: 1, qty: 1 }],
-  fulfillment: 'PICKUP',
+  fulfillment: 'DELIVERY',
+  address: '123 Test St',
   method: 'CASH',
   request_key: randomUUID()
 }, 'POST', customerToken);
@@ -211,7 +212,7 @@ await prisma.user.update({
   data: { emailVerified: true }
 });
 
-const { generateTestToken } = await import('../backend/dist/config/index.js');
+const { generateTestToken } = await import('./helpers/testAuth.mjs');
 const verifiedToken = generateTestToken({
   uid: customerDbUser.firebaseUid,
   email: customerDbUser.email,
@@ -225,7 +226,8 @@ await req('/api/inventory', { product_id: 1, type: 'ADJUSTMENT', quantity: 20, n
 // Verified customer can place order
 const verifiedOrder = await req('/api/orders', {
   items: [{ product_id: 1, qty: 1 }],
-  fulfillment: 'PICKUP',
+  fulfillment: 'DELIVERY',
+  address: '123 Test St',
   method: 'CASH',
   request_key: randomUUID()
 }, 'POST', verifiedToken);
@@ -582,7 +584,8 @@ const noConsentToken = generateTestToken({
 
 const orderWithoutConsent = await req('/api/orders', {
   items: [{ product_id: 1, qty: 1 }],
-  fulfillment: 'PICKUP',
+  fulfillment: 'DELIVERY',
+  address: '123 Test St',
   method: 'CASH',
   request_key: randomUUID()
 }, 'POST', noConsentToken);
@@ -631,7 +634,8 @@ ok(consentRecordRes.code === 200, 'Consent: Customer successfully records consen
 
 const orderWithConsent = await req('/api/orders', {
   items: [{ product_id: 1, qty: 1 }],
-  fulfillment: 'PICKUP',
+  fulfillment: 'DELIVERY',
+  address: '123 Test St',
   method: 'CASH',
   request_key: randomUUID()
 }, 'POST', noConsentToken);
@@ -761,7 +765,8 @@ if (!emuRunning) {
     },
     body: JSON.stringify({
       items: [{ product_id: 1, qty: 1 }],
-      fulfillment: 'PICKUP',
+      fulfillment: 'DELIVERY',
+      address: '123 Test St',
       method: 'CASH',
       request_key: randomUUID()
     })

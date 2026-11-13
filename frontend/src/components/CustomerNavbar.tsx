@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Droplet, ShoppingCart, Smartphone, User, LogOut, Package, Menu, X, ShieldCheck, LayoutDashboard } from 'lucide-react';
 import { AboutStationModal } from './AboutStationModal.js';
 import { CustomerAppModal } from './CustomerAppModal.js';
+import { UpdateDiagnosticsModal } from './UpdateDiagnosticsModal.js';
 import { isCapacitorApp } from '../utils/platform.js';
 import { getRunningBundleVersion, checkAndApplyUpdate, BASE_APP_VERSION } from '../services/updater.js';
 
@@ -24,6 +25,24 @@ export const CustomerNavbar: React.FC<CustomerNavbarProps> = ({ cartCount = 0, o
   const [isAppOpen, setIsAppOpen] = useState(false);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateStatusMsg, setUpdateStatusMsg] = useState<string | null>(null);
+  const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
+  const [versionTapCount, setVersionTapCount] = useState(0);
+  const [lastTapTime, setLastTapTime] = useState(0);
+
+  const handleVersionTap = () => {
+    const now = Date.now();
+    if (now - lastTapTime > 3000) {
+      setVersionTapCount(1);
+    } else {
+      const nextCount = versionTapCount + 1;
+      setVersionTapCount(nextCount);
+      if (nextCount >= 5) {
+        setIsDiagnosticsOpen(true);
+        setVersionTapCount(0);
+      }
+    }
+    setLastTapTime(now);
+  };
 
   const isCustomer = user?.role === 'Customer';
   const isAdmin = user?.role === 'Administrator';
@@ -36,14 +55,16 @@ export const CustomerNavbar: React.FC<CustomerNavbarProps> = ({ cartCount = 0, o
     try {
       const res = await checkAndApplyUpdate({ manual: true });
       if (res.status === 'up_to_date') {
-        setUpdateStatusMsg('App is up to date');
+        setUpdateStatusMsg("You're up to date.");
       } else if (res.status === 'update_ready') {
-        setUpdateStatusMsg(`v${res.version} ready. Tap to restart.`);
+        setUpdateStatusMsg('Update downloaded. Restart to apply.');
       } else if (res.status === 'error') {
         setUpdateStatusMsg(res.message);
+      } else if (res.status === 'native_update_required') {
+        setUpdateStatusMsg('App update required. Please download the latest version. (UPD-APK-01)');
       }
     } catch {
-      setUpdateStatusMsg('Check failed');
+      setUpdateStatusMsg('Update check failed. Please try again later. (UPD-GEN-01)');
     } finally {
       setIsCheckingUpdate(false);
       setTimeout(() => setUpdateStatusMsg(null), 4000);
@@ -221,7 +242,12 @@ export const CustomerNavbar: React.FC<CustomerNavbarProps> = ({ cartCount = 0, o
       {isMobileMenuOpen && (
         <div
           className="fixed inset-x-0 z-40 bg-white border-b border-[#e3f2fd] shadow-xl md:hidden px-6 py-5 space-y-4 animate-in slide-in-from-top-2 duration-150"
-          style={{ top: 'calc(4rem + var(--sat))' }}
+          style={{
+            top: 'calc(4rem + var(--safe-top))',
+            paddingBottom: 'max(var(--safe-bottom), 1.25rem)',
+            maxHeight: 'calc(100dvh - 4rem - var(--safe-top))',
+            overflowY: 'auto'
+          }}
         >
           <div className="flex flex-col gap-3 text-sm font-semibold text-slate-700 border-b border-slate-100 pb-4">
             <Link
@@ -324,7 +350,13 @@ export const CustomerNavbar: React.FC<CustomerNavbarProps> = ({ cartCount = 0, o
           {/* Mobile Drawer Footer: In-app version & Update Check */}
           <div className="pt-3 border-t border-slate-100 flex flex-col gap-1 text-[11px] text-slate-400">
             <div className="flex items-center justify-between">
-              <span>Version {BASE_APP_VERSION} (bundle {getRunningBundleVersion()})</span>
+              <span
+                onClick={handleVersionTap}
+                className="cursor-pointer select-none active:text-[#1565c0]"
+                title="Tap 5 times for diagnostics"
+              >
+                Version {BASE_APP_VERSION} (bundle {getRunningBundleVersion()})
+              </span>
               {isCapacitor && (
                 <button
                   onClick={handleManualUpdateCheck}
@@ -336,9 +368,15 @@ export const CustomerNavbar: React.FC<CustomerNavbarProps> = ({ cartCount = 0, o
               )}
             </div>
             {updateStatusMsg && (
-              <span className="text-[10px] text-center text-slate-500 font-medium">
-                {updateStatusMsg}
-              </span>
+              <div className="text-[10px] text-center text-slate-500 font-medium flex items-center justify-center gap-1.5 flex-wrap">
+                <span>{updateStatusMsg}</span>
+                <button
+                  onClick={() => setIsDiagnosticsOpen(true)}
+                  className="text-[#1565c0] font-bold underline hover:text-[#0b3d91]"
+                >
+                  Details
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -347,6 +385,7 @@ export const CustomerNavbar: React.FC<CustomerNavbarProps> = ({ cartCount = 0, o
       {/* Reusable Modals */}
       <AboutStationModal isOpen={isAboutOpen} onClose={() => setIsAboutOpen(false)} />
       <CustomerAppModal isOpen={isAppOpen} onClose={() => setIsAppOpen(false)} />
+      <UpdateDiagnosticsModal isOpen={isDiagnosticsOpen} onClose={() => setIsDiagnosticsOpen(false)} />
     </>
   );
 };

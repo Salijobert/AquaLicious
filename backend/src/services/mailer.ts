@@ -28,7 +28,61 @@ export class Mailer {
   private static isConfigured = false;
   private static queue: QueuedMail[] = [];
   private static isProcessing = false;
+  private static recentVerificationDispatches = new Map<string, number>();
+  private static recentPasswordResetDispatches = new Map<string, number>();
   public static mockSentEmails: QueuedMail[] = []; // In-memory store for automated test assertion
+
+  public static getStatus(): { configured: boolean } {
+    return { configured: this.isConfigured };
+  }
+
+  private static async hasRecentEmailOfType(
+    type: 'VERIFICATION' | 'PASSWORD_RESET',
+    inMemMap: Map<string, number>,
+    toEmail: string,
+    windowMs = 60_000
+  ): Promise<{ recent: boolean; retryAfterSeconds: number }> {
+    const cleanEmail = (toEmail || '').trim().toLowerCase();
+    if (!cleanEmail) return { recent: false, retryAfterSeconds: 0 };
+    const now = Date.now();
+    const inMemAt = inMemMap.get(cleanEmail) || 0;
+    if (now - inMemAt < windowMs) {
+      return { recent: true, retryAfterSeconds: Math.max(1, Math.ceil((windowMs - (now - inMemAt)) / 1000)) };
+    }
+
+    const recentLog = await prisma.emailLog.findFirst({
+      where: {
+        toEmail: cleanEmail,
+        type,
+        status: 'SENT',
+        sentAt: { gte: new Date(now - windowMs) }
+      },
+      orderBy: { sentAt: 'desc' }
+    });
+
+    if (recentLog) {
+      const elapsed = now - recentLog.sentAt.getTime();
+      if (elapsed < windowMs) {
+        return { recent: true, retryAfterSeconds: Math.max(1, Math.ceil((windowMs - elapsed) / 1000)) };
+      }
+    }
+
+    return { recent: false, retryAfterSeconds: 0 };
+  }
+
+  /**
+   * Checks whether a VERIFICATION email was already queued or logged within the cooldown window.
+   */
+  public static async hasRecentVerificationEmail(toEmail: string, windowMs = 60_000): Promise<{ recent: boolean; retryAfterSeconds: number }> {
+    return this.hasRecentEmailOfType('VERIFICATION', this.recentVerificationDispatches, toEmail, windowMs);
+  }
+
+  /**
+   * Checks whether a PASSWORD_RESET email was already queued or logged within the cooldown window.
+   */
+  public static async hasRecentPasswordResetEmail(toEmail: string, windowMs = 60_000): Promise<{ recent: boolean; retryAfterSeconds: number }> {
+    return this.hasRecentEmailOfType('PASSWORD_RESET', this.recentPasswordResetDispatches, toEmail, windowMs);
+  }
 
   public static initialize() {
     const hasCredentials = Boolean(config.smtpUser && config.smtpPass);
@@ -69,10 +123,10 @@ export class Mailer {
    * Enqueues the email for asynchronous dispatch so caller is never blocked.
    */
   public static async enqueue(mail: QueuedMail): Promise<void> {
-    // 1. Idempotency deduplication for order receipts: prevent duplicate receipts on retry
-    if (mail.type === 'ORDER_RECEIPT') {
+    // 1. Idempotency deduplication for order receipts and idempotent order status emails
+    if (mail.type === 'ORDER_RECEIPT' || (mail.type === 'ORDER_STATUS' && mail.idempotencyKey)) {
       const orConditions: any[] = [];
-      if (mail.orderId) orConditions.push({ orderId: mail.orderId, type: 'ORDER_RECEIPT' });
+      if (mail.type === 'ORDER_RECEIPT' && mail.orderId) orConditions.push({ orderId: mail.orderId, type: 'ORDER_RECEIPT' });
       if (mail.idempotencyKey) orConditions.push({ idempotencyKey: mail.idempotencyKey });
 
       if (orConditions.length > 0) {
@@ -83,10 +137,28 @@ export class Mailer {
           }
         });
         if (existing) {
-          console.log(`[Mailer] Duplicate ORDER_RECEIPT for order #${mail.orderId || mail.idempotencyKey} skipped via idempotency check.`);
+          console.log(`[Mailer] Duplicate ${mail.type} for order #${mail.orderId || mail.idempotencyKey} skipped via idempotency check.`);
           return;
         }
       }
+    }
+
+    // 1b. Deduplicate VERIFICATION and PASSWORD_RESET emails within a 60-second window per recipient
+    if (mail.type === 'VERIFICATION') {
+      const check = await this.hasRecentVerificationEmail(mail.to, 60_000);
+      if (check.recent) {
+        console.log(`[Mailer] Duplicate VERIFICATION email to ${mail.to} within 60s skipped.`);
+        return;
+      }
+      this.recentVerificationDispatches.set(mail.to.trim().toLowerCase(), Date.now());
+    }
+    if (mail.type === 'PASSWORD_RESET') {
+      const check = await this.hasRecentPasswordResetEmail(mail.to, 60_000);
+      if (check.recent) {
+        console.log(`[Mailer] Duplicate PASSWORD_RESET email to ${mail.to} within 60s skipped.`);
+        return;
+      }
+      this.recentPasswordResetDispatches.set(mail.to.trim().toLowerCase(), Date.now());
     }
 
     mail.retries = mail.retries || 0;
@@ -240,6 +312,7 @@ export class Mailer {
     status: string;
     notes?: string | null;
     userId?: number;
+    idempotencyKey?: string;
   }) {
     const template = getOrderStatusUpdateTemplate({
       orderNumber: params.orderNumber,
@@ -255,7 +328,8 @@ export class Mailer {
       text: template.text,
       type: 'ORDER_STATUS',
       orderId: params.orderId,
-      userId: params.userId
+      userId: params.userId,
+      idempotencyKey: params.idempotencyKey
     });
   }
 

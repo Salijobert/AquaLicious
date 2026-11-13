@@ -1,8 +1,15 @@
 import React, { useState } from 'react';
 import { useAuth } from '../auth/AuthContext.js';
 import { useLocation, Link } from 'react-router-dom';
-import { useInventory, useOrders } from '../api/client.js';
+import { useInventory, useOrders, usePendingOrdersSummary } from '../api/client.js';
 import { Bell, Menu, ShoppingCart } from 'lucide-react';
+import {
+  formatFulfillment,
+  formatManilaRelativeTime,
+  formatPendingOrderItemsSummary,
+  isOrderPending
+} from '../utils/orderLabels.js';
+import { formatPeso } from '../utils/currency.js';
 
 interface NavbarProps {
   onToggleSidebar?: () => void;
@@ -10,9 +17,11 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
   const { user, role } = useAuth();
+  const isAdmin = role === 'Administrator';
   const location = useLocation();
   const { data: inventory } = useInventory();
-  const { data: orders } = useOrders();
+  const { data: pendingSummary } = usePendingOrdersSummary(10, isAdmin);
+  const { data: orders } = useOrders(undefined, { enabled: !isAdmin });
 
   const [isNotifOpen, setIsNotifOpen] = useState(false);
 
@@ -26,10 +35,13 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
   else if (path.includes('orders')) pageTitle = 'Orders';
   else if (path.includes('users')) pageTitle = 'Users';
 
-  // Compute low stock items & pending orders for notifications
+  // Compute low stock items & pending orders using single canonical definition
   const lowStock = inventory?.filter((p: any) => p.stock <= p.effective_rop) || [];
-  const pendingOrders = orders?.filter((o: any) => o.status === 'PENDING') || [];
-  const notifCount = lowStock.length + pendingOrders.length;
+  const pendingOrders = isAdmin
+    ? (pendingSummary?.orders || [])
+    : (orders?.filter((o: any) => isOrderPending(o)) || []);
+  const pendingCount = isAdmin ? (pendingSummary?.count ?? pendingOrders.length) : pendingOrders.length;
+  const notifCount = lowStock.length + pendingCount;
 
   // Format today's date in PH locale (e.g., "Mon, Oct 26, 2026")
   const formattedDate = new Date().toLocaleDateString('en-PH', {
@@ -82,16 +94,26 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
                 </button>
               </div>
               <div className="max-h-80 overflow-y-auto divide-y divide-gray-100 text-xs">
+                {pendingCount > 0 && (
+                  <div className="px-3 py-1.5 bg-blue-50/70 text-[11px] font-bold text-[#0b3d91] flex items-center justify-between">
+                    <span>Pending Orders ({pendingCount})</span>
+                    <Link
+                      to="/orders?filter=pending"
+                      onClick={() => setIsNotifOpen(false)}
+                      className="text-[#1565c0] hover:underline"
+                    >
+                      View all
+                    </Link>
+                  </div>
+                )}
                 {pendingOrders.map((o: any) => {
-                  const itemsSummary = o.items && o.items.length > 0
-                    ? o.items.map((i: any) => `${i.product_name || 'Water'} × ${i.qty}`).join(', ')
-                    : 'Water Refill / Order';
-                  const customerName = o.user?.name || o.customer || 'Customer';
+                  const itemsSummary = formatPendingOrderItemsSummary(o.items_summary || o.items);
+                  const customerName = o.customer_name || o.user?.name || o.customer || 'Walk-in customer';
 
                   return (
                     <Link
                       key={o.id}
-                      to="/orders"
+                      to={`/orders?filter=pending&orderId=${o.id}`}
                       onClick={() => setIsNotifOpen(false)}
                       className="p-3 hover:bg-blue-50 flex items-start gap-2.5 text-gray-800 block transition-colors"
                     >
@@ -103,19 +125,37 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
                         <div className="text-[11px] text-gray-600 mt-0.5 flex items-center gap-1.5 flex-wrap">
                           <span className="font-semibold text-blue-700">{customerName}</span>
                           <span>•</span>
-                          <span className="font-bold text-gray-900">₱{Number(o.total).toFixed(2)}</span>
+                          <span className="font-bold text-gray-900">{formatPeso(o.total)}</span>
                           <span>•</span>
                           <span className="bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded text-[10px] font-semibold">
-                            {o.fulfillment}
+                            {formatFulfillment(o.fulfillment)}
                           </span>
                         </div>
-                        <div className="text-[10px] text-gray-400 font-mono mt-0.5">
-                          #{o.order_number}
+                        <div className="text-[10px] text-gray-500 mt-0.5 flex items-center gap-1.5">
+                          <span className="font-mono">#{o.order_number}</span>
+                          {o.created_at && (
+                            <>
+                              <span>•</span>
+                              <span>{formatManilaRelativeTime(o.created_at)}</span>
+                            </>
+                          )}
                         </div>
                       </div>
                     </Link>
                   );
                 })}
+                {lowStock.length > 0 && (
+                  <div className="px-3 py-1.5 bg-amber-50/70 text-[11px] font-bold text-amber-900 flex items-center justify-between">
+                    <span>Low Stock Alerts ({lowStock.length})</span>
+                    <Link
+                      to="/inventory"
+                      onClick={() => setIsNotifOpen(false)}
+                      className="text-amber-800 hover:underline"
+                    >
+                      Inventory
+                    </Link>
+                  </div>
+                )}
                 {lowStock.map((p: any) => (
                   <Link
                     key={p.id}

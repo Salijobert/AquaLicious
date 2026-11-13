@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { config, prisma } from './config/index.js';
 import { Mailer } from './services/mailer.js';
 import { AccountCleanupService } from './services/accountCleanupService.js';
+import { UnpaidOrderCleanupService } from './services/unpaidOrderCleanupService.js';
 import { securityHeaders, corsHandler, apiLimiter } from './middleware/security.js';
 
 import authRoutes from './routes/authRoutes.js';
@@ -14,7 +15,7 @@ import salesRoutes from './routes/salesRoutes.js';
 import orderRoutes from './routes/orderRoutes.js';
 import reportRoutes from './routes/reportRoutes.js';
 import userRoutes from './routes/userRoutes.js';
-import configRoutes from './routes/configRoutes.js';
+import configRoutes, { versionHandler, adminSystemStatusHandler, adminStatusMiddlewares } from './routes/configRoutes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -44,6 +45,8 @@ export function createApp() {
   app.use('/api/reports', reportRoutes);
   app.use('/api/users', userRoutes);
   app.use('/api/config', configRoutes);
+  app.get('/api/version', versionHandler);
+  app.get('/api/admin/system-status', ...adminStatusMiddlewares, adminSystemStatusHandler);
 
   // Legacy PHP compatibility aliases (for existing tests & scripts)
   app.use('/backend/api/auth.php', authRoutes);
@@ -64,6 +67,14 @@ export function createApp() {
   app.use('/users.php', userRoutes);
   app.use('/config.php', configRoutes);
   app.use('/auth.php', authRoutes);
+
+  // Catch-all JSON 404 for any unhandled /api or /backend/api path across all HTTP methods
+  app.all(['/api', '/api/*', '/backend/api', '/backend/api/*'], (_req: Request, res: Response) => {
+    return res.status(404).json({
+      error: 'Endpoint not found',
+      code: 'NOT_FOUND'
+    });
+  });
 
   // Static files for client (if built)
   const clientDist = path.resolve(__dirname, '../../frontend/dist');
@@ -140,6 +151,17 @@ export function createApp() {
   return app;
 }
 
+process.on('uncaughtException', (err: any) => {
+  console.error('[Process] Caught uncaught exception (recovering without crash):', err?.stack || err?.message || err);
+  if (
+    err?.code === 'P1017' ||
+    err?.message?.includes('closed the connection') ||
+    err?.message?.includes('ECONNRESET')
+  ) {
+    prisma.$disconnect().then(() => prisma.$connect()).catch(() => {});
+  }
+});
+
 process.on('unhandledRejection', (reason: any) => {
   console.warn('[Process] Caught unhandled rejection (recovering without crash):', reason?.message || reason);
   if (
@@ -164,8 +186,9 @@ if (isMain) {
     console.log(`Cluster ID: ${config.clusterId}`);
     console.log(`Timezone: ${config.timezone}`);
 
-    // Start scheduled unverified account cleanup (PM2 cluster worker 0 guard)
+    // Start scheduled unverified account cleanup & unpaid order auto-cancel (PM2 cluster worker 0 guard)
     AccountCleanupService.startSchedule();
+    UnpaidOrderCleanupService.startSchedule();
 
     // Notify PM2 that process is ready to handle connections
     if (process.send) {

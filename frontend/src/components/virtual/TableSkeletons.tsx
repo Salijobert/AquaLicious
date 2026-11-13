@@ -120,7 +120,7 @@ export const SalesHistorySkeletonRow: React.FC = () => {
  */
 export const OrderCardSkeleton: React.FC = () => {
   return (
-    <div className="order card bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col md:flex-row justify-between gap-4 animate-pulse">
+    <div className="order-skeleton card bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col md:flex-row justify-between gap-4 animate-pulse">
       <div className="space-y-3 flex-1">
         {/* Header Badges */}
         <div className="flex items-center gap-3 flex-wrap">

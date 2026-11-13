@@ -1,6 +1,7 @@
 import React from 'react';
-import { X, Smartphone, Download, CheckCircle, Zap, MapPin, CreditCard, ShieldCheck } from 'lucide-react';
+import { Smartphone, Download, CheckCircle, Zap, MapPin, CreditCard, ShieldCheck } from 'lucide-react';
 import { COPY } from '../constants/copy.js';
+import { Modal } from './Modal.js';
 
 interface CustomerAppModalProps {
   isOpen: boolean;
@@ -8,38 +9,34 @@ interface CustomerAppModalProps {
 }
 
 export const CustomerAppModal: React.FC<CustomerAppModalProps> = ({ isOpen, onClose }) => {
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-      <div className="relative w-full max-w-xl bg-white rounded-3xl shadow-2xl border border-[#e3f2fd] overflow-hidden my-8 animate-in fade-in zoom-in-95 duration-200">
-        {/* Header */}
-        <div className="bg-gradient-to-r from-[#0b3d91] via-[#1565c0] to-[#1e88e5] text-white p-6 sm:p-8 relative">
-          <button
-            onClick={onClose}
-            className="absolute top-5 right-5 w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center transition-colors"
-            aria-label="Close"
-          >
-            <X className="w-5 h-5" />
-          </button>
-
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center">
-              <Smartphone className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <span className="text-[11px] uppercase tracking-widest font-bold text-white/80">Android Application</span>
-              <h2 className="text-2xl font-serif font-bold tracking-tight">{COPY.APP.TITLE}</h2>
-            </div>
-          </div>
-
-          <p className="text-xs sm:text-sm text-white/90 leading-relaxed max-w-md">
-            {COPY.APP.DESCRIPTION}
-          </p>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="xl"
+      headerVariant="hero"
+      closeAriaLabel="Close"
+      subtitle="Android Application"
+      title={COPY.APP.TITLE}
+      icon={
+        <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center">
+          <Smartphone className="w-6 h-6 text-white" />
         </div>
-
-        {/* Content */}
-        <div className="p-6 sm:p-8 space-y-6">
+      }
+      headerDescription={COPY.APP.DESCRIPTION}
+      bodyClassName="space-y-6"
+      footer={
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-5 py-2 rounded-xl text-xs font-bold bg-white text-slate-700 hover:bg-slate-100 border border-slate-200 transition-all cursor-pointer"
+          >
+            Close
+          </button>
+        </div>
+      }
+    >
           {/* Features */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="p-3.5 rounded-2xl bg-[#f5f7fa] border border-[#eceff1] flex items-start gap-3">
@@ -109,18 +106,6 @@ export const CustomerAppModal: React.FC<CustomerAppModalProps> = ({ isOpen, onCl
               <li>Open <strong>AquaLicious</strong> from your apps and log in.</li>
             </ol>
           </div>
-        </div>
-
-        {/* Footer */}
-        <div className="bg-[#f5f7fa] px-6 sm:px-8 py-3.5 border-t border-[#eceff1] flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-5 py-2 rounded-xl text-xs font-bold bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 transition-all"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 };

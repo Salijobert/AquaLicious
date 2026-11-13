@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { resolver } from './multiServerResolver.js';
 
 // Products
@@ -135,12 +135,84 @@ export function useVoidSale() {
 }
 
 // Orders
-export function useOrders(id?: number, options?: { enabled?: boolean }) {
+export interface PendingOrderSummaryItem {
+  id: number;
+  order_number: string;
+  customer_name: string;
+  fulfillment: string;
+  status: string;
+  payment_method: string;
+  payment_status: string;
+  total: string;
+  created_at: string;
+  items_summary: Array<{ product_name: string; qty: number }>;
+}
+
+export interface PendingOrdersSummary {
+  count: number;
+  orders: PendingOrderSummaryItem[];
+}
+
+export function useOrders(id?: number, options?: { enabled?: boolean; status?: string }) {
+  const statusParam = options?.status;
+  const query = new URLSearchParams();
+  if (id) query.set('id', String(id));
+  if (statusParam) query.set('status', statusParam);
+  const qs = query.toString();
+
   return useQuery({
-    queryKey: ['orders', id],
-    queryFn: () => resolver.request<any>(`/api/orders${id ? `?id=${id}` : ''}`),
+    queryKey: ['orders', id, statusParam || null],
+    queryFn: () => resolver.request<any>(`/api/orders${qs ? `?${qs}` : ''}`),
     refetchInterval: 5000,
     enabled: options?.enabled ?? true
+  });
+}
+
+export interface PaginatedOrdersResponse {
+  items: any[];
+  total: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+  counts: {
+    all: number;
+    pending: number;
+    completed: number;
+    cancelled: number;
+  };
+}
+
+export function useOrdersInfinite(options?: { status?: string; limit?: number; enabled?: boolean }) {
+  const statusParam = options?.status && options.status !== 'ALL' ? options.status : undefined;
+  const pageSize = options?.limit ?? 40;
+
+  return useInfiniteQuery<PaginatedOrdersResponse>({
+    queryKey: ['orders', 'paginated', statusParam || 'ALL', pageSize],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => {
+      const query = new URLSearchParams({
+        paginated: '1',
+        limit: String(pageSize),
+        offset: String(pageParam ?? 0)
+      });
+      if (statusParam) {
+        query.set('status', statusParam);
+      }
+      return resolver.request<PaginatedOrdersResponse>(`/api/orders?${query.toString()}`);
+    },
+    getNextPageParam: (lastPage) => (lastPage.has_more ? lastPage.offset + lastPage.limit : undefined),
+    refetchInterval: 5000,
+    enabled: options?.enabled ?? true
+  });
+}
+export function usePendingOrdersSummary(limit = 5, enabled = true) {
+  return useQuery({
+    queryKey: ['orders', 'pending-summary', limit],
+    queryFn: () =>
+      resolver.request<PendingOrdersSummary>(`/api/orders?pending_summary=1&limit=${limit}`),
+    refetchInterval: () => (typeof document !== 'undefined' && document.hidden ? false : 30000),
+    refetchOnWindowFocus: true,
+    enabled
   });
 }
 

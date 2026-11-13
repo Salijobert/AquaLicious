@@ -17,9 +17,10 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: 8088,
-        ALLOW_LOCAL_AUTH_FALLBACK: 'true',
         CLEANUP_DRY_RUN: 'true',
-        AQ_ADMIN_PASSWORD: 'admin123'
+        AUTO_CANCEL_DRY_RUN: 'true',
+        UNPAID_ORDER_TTL_MINUTES: '120',
+        MAX_UNPAID_PENDING_ORDERS: '3'
       }
     }
   ]

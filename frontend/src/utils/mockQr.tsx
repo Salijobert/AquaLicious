@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatPeso } from './currency.js';
 
 export const PAYMENT_MOCK_QR_ENABLED =
   typeof import.meta !== 'undefined' && (import.meta as any).env
@@ -116,7 +117,7 @@ export const MockQrDisplay: React.FC<MockQrProps> = ({ orderNumber, amount, clas
 
       <div className="mt-3 text-center">
         <div className="font-mono text-xs font-bold text-gray-500">#{orderNumber}</div>
-        <div className="text-xl font-black text-[#0b3d91]">₱{Number(amount).toFixed(2)}</div>
+        <div className="text-xl font-black text-[#0b3d91]">{formatPeso(amount)}</div>
         <div className="text-[11px] text-gray-400 mt-0.5">Scan with GCash, Maya, or any QRPH-supported e-wallet</div>
       </div>
     </div>

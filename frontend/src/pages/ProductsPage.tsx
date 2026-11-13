@@ -13,6 +13,7 @@ import { AboutStationModal } from '../components/AboutStationModal.js';
 import { CustomerAppModal } from '../components/CustomerAppModal.js';
 import { COPY } from '../constants/copy.js';
 import { isCapacitorApp } from '../utils/platform.js';
+import { formatPeso } from '../utils/currency.js';
 
 interface ProductsPageProps {
   onAddToCart?: (product: any, quantity?: number) => void;
@@ -444,7 +445,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
 
                       <div className="text-[11px] text-slate-600 flex justify-between pt-1">
                         <span>Fulfillment: <strong>{activeOrder.fulfillment}</strong></span>
-                        <span>Total: <strong className="text-[#0b3d91]">₱{Number(activeOrder.expected_total || 0).toFixed(2)}</strong></span>
+                        <span>Total: <strong className="text-[#0b3d91]">{formatPeso(activeOrder.expected_total || 0)}</strong></span>
                       </div>
 
                       <Link
@@ -651,7 +652,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
 
                         <div className="mt-3 flex items-baseline gap-1.5">
                           <span className="text-2xl font-black text-[#0b3d91]">
-                            ₱{Number(product.selling_price).toFixed(2)}
+                            {formatPeso(product.selling_price)}
                           </span>
                           <span className="text-[11px] text-slate-600 font-semibold">/ unit</span>
                         </div>
@@ -703,7 +704,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
                             ) : (
                               <>
                                 <ShoppingCart className="w-4 h-4" />
-                                <span>Add {qty > 1 ? `${qty} ` : ''}to Cart · ₱{(Number(product.selling_price) * qty).toFixed(2)}</span>
+                                <span>Add {qty > 1 ? `${qty} ` : ''}to Cart · {formatPeso(Number(product.selling_price) * qty)}</span>
                               </>
                             )}
                           </button>
