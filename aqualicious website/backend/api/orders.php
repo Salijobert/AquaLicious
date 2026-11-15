@@ -3,7 +3,9 @@ require_once __DIR__.'/../includes/helpers.php';
 function orderView(int $id,array $u): array {
  $o=one('SELECT o.*,u.name customer_name,p.method,p.reference_number,p.status payment_status,p.verified_at FROM orders o JOIN users u ON u.id=o.customer_id JOIN order_payments p ON p.order_id=o.id WHERE o.id=?',[$id]);
  if(!$o || ($u['role']==='Customer' && $o['customer_id']!=$u['id']))fail('Order not found',404);
- $o['items']=sql('SELECT product_id,product_name,qty,unit_price FROM order_items WHERE order_id=?',[$id])->fetchAll(); return $o;
+ $o['items']=sql('SELECT product_id,product_name,qty,unit_price FROM order_items WHERE order_id=?',[$id])->fetchAll();
+ $o['rejection_reason'] = ($o['payment_status'] === 'REJECTED') ? ($o['notes'] ?? null) : null;
+ return $o;
 }
 bootstrap(function() {
  $m=method('GET','POST','PATCH'); $u=auth();
@@ -20,6 +22,15 @@ bootstrap(function() {
   if($mode==='PICKUP' && $pay==='CASH')fail('Pickup at Station orders require E-Wallet payment',422);
   if($pay!=='CASH' && !getenv($pay==='GCASH_QR'?'GCASH_QR_URL':'MAYA_QR_URL'))fail('Merchant QR is not configured',409);
   $address=txt($b,'address',500,$mode==='DELIVERY');
+  if($mode==='DELIVERY') {
+   $lat = isset($b['delivery_lat']) ? (float)$b['delivery_lat'] : (isset($b['coords']['lat']) ? (float)$b['coords']['lat'] : null);
+   $lng = isset($b['delivery_lng']) ? (float)$b['delivery_lng'] : (isset($b['coords']['lng']) ? (float)$b['coords']['lng'] : null);
+   if($lat !== null && $lng !== null) {
+    if($lat < 15.09 || $lat > 15.22 || $lng < 120.51 || $lng > 120.67) {
+     fail('Delivery location is outside our service area. AquaLicious only delivers within Angeles City, Pampanga.', 422);
+    }
+   }
+  }
   return atomic(function()use($u,$b,$key,$mode,$pay,$address) {
    one('SELECT id FROM users WHERE id=? FOR UPDATE',[$u['id']]); $old=replay(one('SELECT * FROM orders WHERE customer_id=? AND request_key=?',[$u['id'],$key]),$b); if($old)return orderView((int)$old['id'],$u);
    $lines=cartLines($b); $total=totalLines($lines);
@@ -42,7 +53,10 @@ bootstrap(function() {
    if($u['role']!=='Administrator')fail('Administrator required',403);
    if($action==='refunded') { if($p['status']!=='REFUND_REQUIRED')fail('No refund pending',409); $status='REFUNDED'; }
    else { if($o['status']==='CANCELLED' || $o['status']==='COMPLETED')fail('Order is closed',409); if($p['method']==='CASH' || $p['status']!=='SUBMITTED')fail('No QR claim awaiting review',409); $status=$action==='verify'?'VERIFIED':'REJECTED'; }
-   sql('UPDATE order_payments SET status=?,verified_at=NOW(),verified_by=? WHERE order_id=?',[$status,$u['id'],$id]); audit((int)$u['id'],'PAYMENT_'.$status,$id,txt($b,'notes',500));
+   $notes=txt($b,'notes',500,false);
+   sql('UPDATE order_payments SET status=?,verified_at=NOW(),verified_by=? WHERE order_id=?',[$status,$u['id'],$id]);
+   if($action==='reject') { sql('UPDATE orders SET notes=? WHERE id=?',[$notes,$id]); }
+   audit((int)$u['id'],'PAYMENT_'.$status,$id,$notes);
   } elseif($action==='status') {
    $next=$b['status']??''; $current=$o['status'];
    $allowed=['PENDING'=>['CONFIRMED','CANCELLED'],'CONFIRMED'=>['OUT_FOR_DELIVERY','COMPLETED','CANCELLED'],'OUT_FOR_DELIVERY'=>['COMPLETED','CANCELLED'],'COMPLETED'=>[],'CANCELLED'=>[]];

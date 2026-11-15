@@ -4,7 +4,8 @@ import rateLimit from 'express-rate-limit';
 import { OrderService } from '../services/orderService.js';
 import { authenticate, requireEmailVerified, requireConsent } from '../middleware/auth.js';
 import { idempotencyMiddleware } from '../middleware/idempotency.js';
-import { prisma } from '../config/index.js';
+import { prisma, config } from '../config/index.js';
+import { isDeliveryInServiceArea } from '../config/deliveryArea.js';
 
 const router = Router();
 
@@ -32,6 +33,16 @@ const createOrderSchema = z.object({
   })).min(1, 'Cart items cannot be empty'),
   fulfillment: z.enum(['PICKUP', 'STORE_PICKUP', 'DELIVERY']).optional().default('PICKUP').transform(f => f === 'STORE_PICKUP' ? 'PICKUP' : f),
   address: z.string().optional(),
+  delivery_lat: z.number().optional().nullable(),
+  delivery_lng: z.number().optional().nullable(),
+  delivery_street: z.string().optional().nullable(),
+  delivery_barangay: z.string().optional().nullable(),
+  delivery_landmark: z.string().trim().max(100).optional().nullable(),
+  delivery_contact: z.string().trim().max(30).regex(/^[0-9+\s\-()]*$/, 'Invalid phone number format').optional().nullable(),
+  coords: z.object({
+    lat: z.number(),
+    lng: z.number()
+  }).optional().nullable(),
   method: z.enum(['CASH', 'E_WALLET'], {
     errorMap: () => ({ message: 'Invalid payment method. Only Cash and E-Wallet are accepted.' })
   }).optional().default('E_WALLET'),
@@ -47,8 +58,35 @@ const createOrderSchema = z.object({
   }
 });
 
+router.get('/receipt/:id', authenticate, async (req: Request, res: Response) => {
+  try {
+    const receipt = await OrderService.getOrderReceipt(Number(req.params.id), req.user!);
+    return res.json(receipt);
+  } catch (err: any) {
+    return res.status(err.status || 500).json({ error: err.message || 'Receipt generation failed' });
+  }
+});
+
+router.get('/:id/receipt', authenticate, async (req: Request, res: Response) => {
+  try {
+    const receipt = await OrderService.getOrderReceipt(Number(req.params.id), req.user!);
+    return res.json(receipt);
+  } catch (err: any) {
+    return res.status(err.status || 500).json({ error: err.message || 'Receipt generation failed' });
+  }
+});
+
 router.get('/', authenticate, async (req: Request, res: Response) => {
-  const { id, proof, raw, limit, email_logs, pending_summary } = req.query;
+  const { id, proof, raw, limit, email_logs, pending_summary, receipt } = req.query;
+
+  if (receipt) {
+    try {
+      const receiptData = await OrderService.getOrderReceipt(Number(receipt), req.user!);
+      return res.json(receiptData);
+    } catch (err: any) {
+      return res.status(err.status || 500).json({ error: err.message || 'Receipt generation failed' });
+    }
+  }
 
   if (pending_summary === '1' || pending_summary === 'true') {
     if (req.user!.role !== 'ADMIN') {
@@ -131,7 +169,44 @@ router.post('/', authenticate, requireEmailVerified, requireConsent, idempotency
     });
   }
 
-  const { items, fulfillment, address, method, expected_total, request_key } = parsed.data;
+  const {
+    items,
+    fulfillment,
+    address,
+    method,
+    expected_total,
+    request_key,
+    delivery_lat,
+    delivery_lng,
+    delivery_street,
+    delivery_barangay,
+    delivery_landmark,
+    delivery_contact,
+    coords
+  } = parsed.data;
+
+  const effectiveLat = typeof delivery_lat === 'number' ? delivery_lat : (coords?.lat ?? null);
+  const effectiveLng = typeof delivery_lng === 'number' ? delivery_lng : (coords?.lng ?? null);
+
+  // Validate service area for delivery orders BEFORE entering transaction or acquiring row locks
+  if (fulfillment === 'DELIVERY') {
+    if (effectiveLat !== null && effectiveLng !== null) {
+      if (!isDeliveryInServiceArea(effectiveLat, effectiveLng)) {
+        return res.status(422).json({
+          error: 'Delivery location is outside our service area. AquaLicious only delivers within Angeles City, Pampanga.',
+          code: 'OUTSIDE_SERVICE_AREA'
+        });
+      }
+    } else {
+      const requireCoords = config.deliveryRequireCoords;
+      if (requireCoords) {
+        return res.status(422).json({
+          error: 'Please update the app or refresh the page to choose your delivery location on the map.',
+          code: 'COORDINATES_REQUIRED'
+        });
+      }
+    }
+  }
 
   try {
     const order = await OrderService.createOrder({
@@ -140,6 +215,12 @@ router.post('/', authenticate, requireEmailVerified, requireConsent, idempotency
       items,
       fulfillment,
       address,
+      deliveryLat: effectiveLat,
+      deliveryLng: effectiveLng,
+      deliveryStreet: delivery_street,
+      deliveryBarangay: delivery_barangay,
+      deliveryLandmark: delivery_landmark,
+      deliveryContact: delivery_contact,
       method,
       expectedTotal: expected_total,
       requestKey: request_key

@@ -3,15 +3,14 @@ import { verifyPasswordResetCode, confirmPasswordReset, signOut } from 'firebase
 import { auth } from '../auth/firebase.js';
 import { resolver } from '../api/multiServerResolver.js';
 import { Link, useLocation } from 'react-router-dom';
+import { PasswordInput } from '../components/PasswordInput.js';
 import {
   KeyRound,
   CheckCircle2,
   AlertCircle,
   RefreshCw,
   Lock,
-  ArrowRight,
-  Eye,
-  EyeOff
+  ArrowRight
 } from 'lucide-react';
 
 interface ParsedResetParams {
@@ -65,8 +64,6 @@ export const ResetPasswordCompletePage: React.FC = () => {
 
   const [newPassword, setNewPassword] = useState<string>('');
   const [confirmPassword, setConfirmPassword] = useState<string>('');
-  const [showNewPassword, setShowNewPassword] = useState<boolean>(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState<boolean>(false);
@@ -286,29 +283,19 @@ export const ResetPasswordCompletePage: React.FC = () => {
             )}
 
             <form onSubmit={handleResetSubmit} className="space-y-4">
-              <div className="form-group">
-                <label className="form-label text-xs font-semibold text-gray-700">New Password *</label>
-                <div className="relative">
-                  <input
-                    type={showNewPassword ? 'text' : 'password'}
-                    name="newPassword"
-                    required
-                    minLength={6}
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    className="form-control text-xs pr-9"
-                    placeholder="Minimum 6 characters (use letters, numbers & symbols)"
-                    autoFocus
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowNewPassword((v) => !v)}
-                    aria-label={showNewPassword ? 'Hide password' : 'Show password'}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
+              <div>
+                <PasswordInput
+                  id="new-password"
+                  name="newPassword"
+                  label="New Password *"
+                  required
+                  minLength={6}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Minimum 6 characters (use letters, numbers & symbols)"
+                  autoComplete="new-password"
+                  autoFocus
+                />
 
                 {newPassword && (
                   <div className="mt-1.5 space-y-1">
@@ -330,31 +317,19 @@ export const ResetPasswordCompletePage: React.FC = () => {
                 )}
               </div>
 
-              <div className="form-group">
-                <label className="form-label text-xs font-semibold text-gray-700">Confirm New Password *</label>
-                <div className="relative">
-                  <input
-                    type={showConfirmPassword ? 'text' : 'password'}
-                    name="confirmPassword"
-                    required
-                    minLength={6}
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="form-control text-xs pr-9"
-                    placeholder="Re-enter new password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmPassword((v) => !v)}
-                    aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-                {confirmPassword && newPassword !== confirmPassword && (
-                  <p className="text-[11px] text-red-600 mt-1">Passwords do not match.</p>
-                )}
+              <div>
+                <PasswordInput
+                  id="confirm-password"
+                  name="confirmPassword"
+                  label="Confirm New Password *"
+                  required
+                  minLength={6}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Re-enter new password"
+                  autoComplete="new-password"
+                  error={confirmPassword && newPassword !== confirmPassword ? 'Passwords do not match.' : undefined}
+                />
               </div>
 
               <button

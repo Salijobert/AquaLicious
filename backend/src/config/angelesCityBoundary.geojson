@@ -1,0 +1,45 @@
+{
+  "type": "FeatureCollection",
+  "metadata": {
+    "city": "Angeles City",
+    "province": "Pampanga",
+    "country": "Philippines",
+    "status": "NEEDS OWNER CONFIRMATION",
+    "source": "OpenStreetMap / Philippine Standard Geographic Code approximation for Angeles City boundary",
+    "license": "ODbL (Open Database License) / OpenStreetMap contributors",
+    "center": [120.5927, 15.1449],
+    "defaultZoom": 13
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Angeles City",
+        "level": "City",
+        "description": "Authorized Station Delivery Service Area"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [120.5230, 15.1840],
+            [120.5480, 15.2010],
+            [120.5780, 15.2090],
+            [120.6050, 15.2060],
+            [120.6320, 15.1950],
+            [120.6550, 15.1740],
+            [120.6620, 15.1500],
+            [120.6510, 15.1220],
+            [120.6340, 15.1050],
+            [120.6060, 15.0940],
+            [120.5750, 15.0970],
+            [120.5480, 15.1120],
+            [120.5280, 15.1350],
+            [120.5190, 15.1600],
+            [120.5230, 15.1840]
+          ]
+        ]
+      }
+    }
+  ]
+}

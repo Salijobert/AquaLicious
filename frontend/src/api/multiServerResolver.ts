@@ -85,10 +85,11 @@ class MultiServerResolver {
       data?: any;
       headers?: Record<string, string>;
       idempotencyKey?: string;
+      timeoutMs?: number;
       _retried?: boolean;
     } = {}
   ): Promise<T> {
-    const { method = 'GET', data, headers = {}, idempotencyKey, _retried = false } = options;
+    const { method = 'GET', data, headers = {}, idempotencyKey, timeoutMs = 25000, _retried = false } = options;
     const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
     const targetUrl = `${this.apiBaseUrl}${cleanEndpoint}`;
     const isPublicAuthPost = method === 'POST' && (cleanEndpoint === '/api/auth' || cleanEndpoint === '/api/auth/forgot-password');
@@ -113,19 +114,42 @@ class MultiServerResolver {
       reqHeaders['Idempotency-Key'] = idempotencyKey;
     }
 
-    const res = await fetch(targetUrl, {
-      method,
-      headers: reqHeaders,
-      body: data ? JSON.stringify(data) : undefined,
-      signal: AbortSignal.timeout(10000)
-    });
+    let res: Response;
+    try {
+      res = await fetch(targetUrl, {
+        method,
+        headers: reqHeaders,
+        body: data ? JSON.stringify(data) : undefined,
+        signal: AbortSignal.timeout(timeoutMs)
+      });
+    } catch (networkErr: any) {
+      const errName = networkErr?.name;
+      const errMsg = networkErr?.message || '';
+      if (errName === 'TimeoutError' || errMsg.includes('timed out') || errMsg.includes('timeout')) {
+        console.warn(`[API Client] Timeout (${timeoutMs}ms) reaching ${method} ${targetUrl}`);
+        const friendlyErr = new Error("The request took too long to complete. Please try again in a moment. [NET-TIMEOUT]");
+        (friendlyErr as any).code = 'TIMEOUT';
+        (friendlyErr as any).status = 504;
+        throw friendlyErr;
+      }
+      if (errName === 'AbortError') {
+        const friendlyErr = new Error("The request was cancelled. Please try again. [NET-ABORT]");
+        (friendlyErr as any).code = 'ABORTED';
+        throw friendlyErr;
+      }
+      console.warn(`[API Client] Network error reaching ${method} ${targetUrl}:`, networkErr);
+      const friendlyErr = new Error("The server isn't reachable right now. Please check your connection and try again. [NET-01]");
+      (friendlyErr as any).code = 'SERVER_UNREACHABLE';
+      (friendlyErr as any).status = 503;
+      throw friendlyErr;
+    }
 
     const contentType = res.headers.get('content-type') || '';
     const isJson = contentType.toLowerCase().includes('application/json');
 
     if (!isJson) {
       console.error(`[API Client] Non-JSON response received from ${method} ${targetUrl} (status ${res.status}, content-type: ${contentType})`);
-      const friendlyErr = new Error("The server isn't reachable right now. Please try again in a moment.");
+      const friendlyErr = new Error("The server isn't reachable right now. Please try again in a moment. [NET-01]");
       (friendlyErr as any).status = res.ok ? 503 : res.status;
       (friendlyErr as any).code = 'SERVER_UNREACHABLE';
       throw friendlyErr;
@@ -136,7 +160,7 @@ class MultiServerResolver {
       json = await res.json();
     } catch (parseErr) {
       console.error(`[API Client] JSON parse error from ${method} ${targetUrl}:`, parseErr);
-      const friendlyErr = new Error("The server isn't reachable right now. Please try again in a moment.");
+      const friendlyErr = new Error("The server isn't reachable right now. Please try again in a moment. [NET-01]");
       (friendlyErr as any).status = res.status;
       (friendlyErr as any).code = 'INVALID_JSON_RESPONSE';
       throw friendlyErr;

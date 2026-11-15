@@ -9,6 +9,7 @@ import {
   getVerificationReminderTemplate,
   OrderReceiptItem
 } from './mailTemplates.js';
+import { buildFirebaseVerificationLink } from '../utils/verificationLink.js';
 
 export interface QueuedMail {
   id?: string;
@@ -93,6 +94,9 @@ export class Mailer {
           host: 'smtp.gmail.com',
           port: 465,
           secure: true,
+          connectionTimeout: 10000,
+          greetingTimeout: 5000,
+          socketTimeout: 15000,
           auth: {
             user: config.smtpUser,
             pass: config.smtpPass
@@ -115,6 +119,130 @@ export class Mailer {
     } else {
       console.log('[Mailer] Running in mock/development mail mode. Outbound emails logged to in-memory store.');
       this.isConfigured = false;
+    }
+
+    // Process any pending outbox rows left from previous runs or restarts
+    this.processPendingOutbox().catch(() => {});
+    if (!this.outboxTimer) {
+      this.outboxTimer = setInterval(() => {
+        this.processPendingOutbox().catch(() => {});
+      }, 15000);
+      if (this.outboxTimer.unref) this.outboxTimer.unref();
+    }
+  }
+
+  private static isOutboxProcessing = false;
+  private static outboxTimer: NodeJS.Timeout | null = null;
+
+  /**
+   * Durable DB-backed outbox enqueue for registration verification.
+   * Inserts a PENDING email_logs record with idempotencyKey = REG_VERIFY_<userId>.
+   * Survives process restarts and guarantees exactly one verification email per registration.
+   */
+  public static async enqueueRegistrationVerification(userId: number, email: string, name: string): Promise<void> {
+    const cleanEmail = email.trim().toLowerCase();
+    const idempotencyKey = `REG_VERIFY_${userId}`;
+
+    // Deduplication check: check if already queued or sent
+    const existing = await prisma.emailLog.findFirst({
+      where: {
+        OR: [
+          { idempotencyKey },
+          { userId, type: 'VERIFICATION', status: 'SENT' }
+        ]
+      }
+    });
+
+    if (existing) {
+      console.log(`[Mailer] Verification email for user #${userId} already in outbox (status: ${existing.status}). Skipping duplicate.`);
+      return;
+    }
+
+    await prisma.emailLog.create({
+      data: {
+        type: 'VERIFICATION',
+        userId,
+        toEmail: cleanEmail,
+        status: 'PENDING',
+        idempotencyKey
+      }
+    });
+
+    // Trigger outbox processing asynchronously without blocking
+    this.processPendingOutbox().catch((err) => {
+      console.warn('[Mailer] Immediate outbox trigger error:', err?.message || err);
+    });
+  }
+
+  /**
+   * Processes pending records from the email_logs table with backoff and retries.
+   */
+  public static async processPendingOutbox(): Promise<void> {
+    if (this.isOutboxProcessing) return;
+    this.isOutboxProcessing = true;
+
+    try {
+      const pendingLogs = await prisma.emailLog.findMany({
+        where: { status: 'PENDING' },
+        take: 10,
+        orderBy: { id: 'asc' },
+        include: { user: true }
+      });
+
+      for (const log of pendingLogs) {
+        try {
+          if (log.type === 'VERIFICATION') {
+            const userName = log.user?.name || log.toEmail.split('@')[0] || 'Customer';
+            const verificationLink = await buildFirebaseVerificationLink(log.toEmail, userName);
+            const template = getVerificationEmailTemplate({ name: userName, link: verificationLink });
+
+            if (this.isConfigured && this.transporter) {
+              await this.transporter.sendMail({
+                from: `"${config.mailFromName}" <${config.adminEmail}>`,
+                to: log.toEmail,
+                replyTo: config.adminEmail,
+                subject: template.subject,
+                html: template.html,
+                text: template.text
+              });
+            } else {
+              this.mockSentEmails.push({
+                to: log.toEmail,
+                subject: template.subject,
+                html: template.html,
+                text: template.text,
+                type: 'VERIFICATION',
+                userId: log.userId ?? undefined,
+                idempotencyKey: log.idempotencyKey ?? undefined
+              });
+              console.log(`[Mailer Mock/Dev] Outbox Verification Email -> ${log.toEmail}:`);
+              console.log(`  Subject: ${template.subject}`);
+            }
+
+            await prisma.emailLog.update({
+              where: { id: log.id },
+              data: {
+                status: 'SENT',
+                sentAt: new Date(),
+                error: null
+              }
+            });
+          }
+        } catch (dispatchErr: any) {
+          console.error(`[Mailer Outbox] Failed to send email #${log.id} to ${log.toEmail}:`, dispatchErr?.message || dispatchErr);
+          await prisma.emailLog.update({
+            where: { id: log.id },
+            data: {
+              status: 'FAILED',
+              error: dispatchErr?.message || 'Unknown dispatch error'
+            }
+          });
+        }
+      }
+    } catch (outboxErr: any) {
+      console.warn('[Mailer Outbox] Error querying pending emails:', outboxErr?.message || outboxErr);
+    } finally {
+      this.isOutboxProcessing = false;
     }
   }
 

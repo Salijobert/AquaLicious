@@ -1,10 +1,8 @@
 /**
  * AquaLicious Terms and Conditions & Data Privacy Policy
  * Compliant with Republic Act No. 10173 (Philippine Data Privacy Act of 2012)
- *
- * NOTE: Replace placeholder text with official legal counsel copy as needed.
  */
-export const TERMS_VERSION = "2026-10-27.2";
+export const TERMS_VERSION = "2026-11-16.3";
 
 export interface TermsSection {
   title: string;
@@ -19,7 +17,7 @@ export const TERMS_CONTENT: {
 } = {
   title: "AquaLicious Customer Terms and Conditions & Data Privacy Notice",
   version: TERMS_VERSION,
-  effectiveDate: "October 27, 2026 (Revision 2)",
+  effectiveDate: "November 16, 2026 (Revision 5)",
   sections: [
     {
       title: "1. Introduction & Acceptance of Terms",
@@ -32,8 +30,8 @@ export const TERMS_CONTENT: {
       title: "2. Personal Data We Collect",
       paragraphs: [
         "In accordance with the Philippine Data Privacy Act of 2012 (Republic Act No. 10173), we collect only the minimum personal information necessary to deliver our services, including:",
-        "• Identification and contact data: Full name, account username, and verified email address.",
-        "• Contact and fulfillment details: Contact phone number and physical delivery address.",
+        "• Identification and contact data: Full name, account username, verified email address, and optional delivery recipient contact number.",
+        "• Delivery & Geographic Location Data: Physical delivery address, barangay, landmark, and pinned GPS coordinates (latitude and longitude) strictly within our Angeles City service area. Location coordinates are collected solely to determine delivery eligibility within our designated boundary and facilitate accurate dispatch.",
         "• Payment transaction information: Transaction reference numbers and digital payment receipts (e.g., GCash, Maya screenshot proofs) uploaded for verification.",
         "• Technical device data: IP address, user agent, and session identifiers for security audit logs and fraud prevention."
       ]
@@ -43,6 +41,8 @@ export const TERMS_CONTENT: {
       paragraphs: [
         "Your personal data is collected and processed based on contractual necessity and legitimate business interests for the following specified purposes:",
         "• Receiving, queuing, and delivering water refilling orders and container purchases.",
+        // Boundary source: OpenStreetMap approximation, status: NEEDS OWNER CONFIRMATION
+        "• Verifying delivery address coordinates within our designated Angeles City service perimeter.",
         "• Verifying mobile payment claims and matching merchant transaction reference numbers.",
         "• Notifying customers regarding order dispatch, delivery status, and service advisories.",
         "• Maintaining accurate sales, tax, and inventory movement records required by law."
@@ -53,16 +53,20 @@ export const TERMS_CONTENT: {
       paragraphs: [
         "We implement organizational, physical, and technical security safeguards to protect your personal data against unauthorized access, loss, or alteration.",
         "• Security controls include encrypted transport (TLS/HTTPS), salted credentials, role-based access restrictions, and strict server-side authorization checks.",
+        "• Geographic Coordinates Retention: Customer delivery location coordinates and recipient contact numbers are stored strictly in connection with delivery fulfillment and order history. Coordinates, addresses, and recipient phone numbers are never made public, never logged in general application logs, and never displayed on public dashboard tiles.",
         "• Unverified Account Policy: In accordance with our storage limitation and security principles, registered customer accounts that remain unverified after thirty (30) days from registration are automatically and permanently deleted from our authentication systems and database. Prior warning notifications are sent before scheduled deletion.",
         "• Active verified customer data is retained only for as long as your account remains active or as required by applicable Philippine laws and statutory tax/accounting regulations."
       ]
     },
     {
-      title: "5. Disclosure and Third-Party Sharing",
+      title: "5. Disclosure, Third-Party Mapping & Geolocation Processors",
       paragraphs: [
         "AquaLicious does not sell, rent, or trade customer personal data to third parties.",
-        "Data may only be shared with verified service processors strictly necessary to deliver the service, such as Google Firebase for tokenized authentication and infrastructure hosting.",
-        "All processors are bound by confidentiality and data protection obligations conforming to RA 10173."
+        "Data may only be shared with verified service processors strictly necessary to deliver the service:",
+        "• Google Firebase: Tokenized authentication and secure identity infrastructure.",
+        "• OpenStreetMap & Nominatim: Map display tiles and reverse geocoding lookups connect directly from your client browser to OpenStreetMap Foundation servers. These services are governed by their own terms and privacy policies (including OpenStreetMap's Acceptable Use Policy and Privacy Policy). When map tiles or reverse geocoding lookups are requested, OpenStreetMap servers can see your client IP address and HTTP referrer.",
+        "• Google Maps External Navigation: When station dispatchers or administrators view delivery locations, coordinates may be opened in Google Maps. Use of Google Maps is subject to Google's Privacy Policy and Terms of Service.",
+        "OpenStreetMap, Nominatim, and Google are independent third-party services operating under their respective privacy policies and terms of use."
       ]
     },
     {

@@ -7,7 +7,6 @@ import { formatPeso } from './utils/currency.js';
 import { CustomerNavbar } from './components/CustomerNavbar.js';
 import { Sidebar } from './components/Sidebar.js';
 import { LoginPage } from './pages/LoginPage.js';
-import { RegisterPage } from './pages/RegisterPage.js';
 import { VerifyEmailPromptPage } from './pages/VerifyEmailPromptPage.js';
 import { VerifyEmailCompletePage } from './pages/VerifyEmailCompletePage.js';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage.js';
@@ -19,8 +18,12 @@ import { useCreateOrder } from './api/client.js';
 import { resolver } from './api/multiServerResolver.js';
 import { TermsPrivacyModal } from './components/TermsPrivacyModal.js';
 import { getFriendlyErrorMessage } from './utils/orderLabels.js';
-import { ShoppingCart, X, Plus, Minus, Droplet, AlertTriangle, Sparkles, RefreshCw } from 'lucide-react';
+import { ShoppingCart, X, Plus, Minus, Droplet, AlertTriangle, Sparkles, RefreshCw, MapPin } from 'lucide-react';
 import { initAppUpdater, restartApp } from './services/updater.js';
+import type { PinnedDeliveryLocation } from './components/DeliveryLocationModal.js';
+
+// Code-split modals and admin pages with React.lazy
+const DeliveryLocationModal = lazy(() => import('./components/DeliveryLocationModal.js').then((m) => ({ default: m.DeliveryLocationModal })));
 
 // Code-split admin pages with React.lazy
 const DashboardPage = lazy(() => import('./pages/DashboardPage.js').then((m) => ({ default: m.DashboardPage })));
@@ -57,6 +60,8 @@ export const App: React.FC = () => {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [fulfillment, setFulfillment] = useState<'PICKUP' | 'DELIVERY'>('PICKUP');
   const [address, setAddress] = useState('');
+  const [deliveryLocation, setDeliveryLocation] = useState<PinnedDeliveryLocation | null>(null);
+  const [isMapModalOpen, setIsMapModalOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'E_WALLET'>('E_WALLET');
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [showSplash, setShowSplash] = useState(true);
@@ -177,6 +182,14 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleConfirmLocation = (loc: PinnedDeliveryLocation) => {
+    setDeliveryLocation(loc);
+    const formatted = `${loc.street}, ${loc.barangay}, Angeles City, Pampanga (Landmark: ${loc.landmark})${loc.contact ? ` [Contact: ${loc.contact}]` : ''}`;
+    setAddress(formatted);
+    setIsMapModalOpen(false);
+    setCheckoutError(null);
+  };
+
   const handleMobileCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
     setCheckoutError(null);
@@ -188,6 +201,12 @@ export const App: React.FC = () => {
 
     if (cart.length === 0) return;
 
+    if (fulfillment === 'DELIVERY' && !deliveryLocation) {
+      setCheckoutError('Please pin your delivery location on the map (Angeles City only) before placing your order.');
+      setIsMapModalOpen(true);
+      return;
+    }
+
     const effectiveMethod: 'CASH' | 'E_WALLET' = fulfillment === 'PICKUP' ? 'E_WALLET' : paymentMethod;
 
     try {
@@ -195,12 +214,21 @@ export const App: React.FC = () => {
         items: cart.map((i) => ({ product_id: i.id, qty: i.qty })),
         fulfillment,
         address: fulfillment === 'DELIVERY' ? address : undefined,
+        delivery_lat: fulfillment === 'DELIVERY' && deliveryLocation ? deliveryLocation.lat : undefined,
+        delivery_lng: fulfillment === 'DELIVERY' && deliveryLocation ? deliveryLocation.lng : undefined,
+        delivery_street: fulfillment === 'DELIVERY' && deliveryLocation ? deliveryLocation.street : undefined,
+        delivery_barangay: fulfillment === 'DELIVERY' && deliveryLocation ? deliveryLocation.barangay : undefined,
+        delivery_landmark: fulfillment === 'DELIVERY' && deliveryLocation ? deliveryLocation.landmark : undefined,
+        delivery_contact: fulfillment === 'DELIVERY' && deliveryLocation ? deliveryLocation.contact : undefined,
+        coords: fulfillment === 'DELIVERY' && deliveryLocation ? { lat: deliveryLocation.lat, lng: deliveryLocation.lng } : undefined,
         method: effectiveMethod,
         expected_total: cartTotal.toFixed(2),
         request_key: crypto.randomUUID()
       });
 
       setCart([]);
+      setDeliveryLocation(null);
+      setAddress('');
       setIsCartOpen(false);
       navigate('/orders');
     } catch (err: any) {
@@ -285,9 +313,9 @@ export const App: React.FC = () => {
                 }
               />
 
-              {/* 2. Authentication Flow */}
+              {/* 2. Authentication Flow (Unified Auth Card for Login & Register) */}
               <Route path="/login" element={<LoginPage />} />
-              <Route path="/register" element={<RegisterPage />} />
+              <Route path="/register" element={<LoginPage />} />
               <Route path="/verify-email" element={<VerifyEmailPromptPage />} />
               <Route path="/verify-email-complete" element={<VerifyEmailCompletePage />} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
@@ -456,16 +484,50 @@ export const App: React.FC = () => {
                 </div>
 
                 {fulfillment === 'DELIVERY' && (
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-gray-600 uppercase tracking-wider">Delivery Address *</label>
-                    <textarea
-                      required
-                      value={address}
-                      onChange={(e) => setAddress(e.target.value)}
-                      placeholder="Street, Barangay, City, Landmark"
-                      className="w-full text-xs p-2 rounded-lg border border-gray-300 focus:outline-none focus:border-[#1565c0] bg-white resize-none"
-                      rows={2}
-                    />
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-bold text-gray-600 uppercase tracking-wider">
+                        Delivery Pin & Address *
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setIsMapModalOpen(true)}
+                        className="text-[11px] font-bold text-[#1565c0] hover:underline flex items-center gap-1"
+                      >
+                        <MapPin className="w-3.5 h-3.5" />
+                        {deliveryLocation ? 'Change Pin' : 'Pin on Map'}
+                      </button>
+                    </div>
+
+                    {deliveryLocation ? (
+                      <div className="p-2.5 bg-blue-50/70 border border-blue-200 rounded-xl space-y-1 text-xs">
+                        <div className="flex items-start gap-2">
+                          <MapPin className="w-4 h-4 text-[#1565c0] shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <div className="font-bold text-[#0b3d91]">
+                              {deliveryLocation.street}, {deliveryLocation.barangay}
+                            </div>
+                            <div className="text-[11px] text-slate-600">
+                              Angeles City, Pampanga · Landmark: {deliveryLocation.landmark}
+                            </div>
+                            {deliveryLocation.contact && (
+                              <div className="text-[10px] text-slate-500 font-medium mt-0.5">
+                                Contact: {deliveryLocation.contact}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setIsMapModalOpen(true)}
+                        className="w-full py-3 px-4 border-2 border-dashed border-[#90caf9] bg-[#f0f7ff] hover:bg-[#e3f2fd] rounded-xl text-xs font-bold text-[#1565c0] flex items-center justify-center gap-2 transition-all cursor-pointer"
+                      >
+                        <MapPin className="w-4 h-4 text-[#1565c0]" />
+                        <span>Pin Delivery Location (Angeles City Only)</span>
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -597,6 +659,18 @@ export const App: React.FC = () => {
         }}
         isSubmitting={isSubmittingConsent}
       />
+
+      {/* Lazy-Loaded Delivery Location Map Modal */}
+      {isMapModalOpen && (
+        <Suspense fallback={null}>
+          <DeliveryLocationModal
+            isOpen={isMapModalOpen}
+            onClose={() => setIsMapModalOpen(false)}
+            onConfirm={handleConfirmLocation}
+            initialLocation={deliveryLocation}
+          />
+        </Suspense>
+      )}
 
       {/* Non-Blocking OTA Update Notification Banner */}
       {updateReady && (

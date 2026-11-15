@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, Suspense, lazy } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Modal } from '../components/Modal.js';
 import { useOrdersInfinite, usePatchOrder, usePendingOrdersSummary } from '../api/client.js';
@@ -21,8 +21,13 @@ import {
   CreditCard,
   Hash,
   ShieldCheck,
-  FileImage
+  FileImage,
+  Receipt,
+  MapPin
 } from 'lucide-react';
+
+const ReceiptModal = lazy(() => import('../components/ReceiptModal.js').then((m) => ({ default: m.ReceiptModal })));
+const AdminOrderMapModal = lazy(() => import('../components/AdminOrderMapModal.js').then((m) => ({ default: m.AdminOrderMapModal })));
 import { VirtualCardList, OrderCardSkeleton } from '../components/virtual/index.js';
 import { AdminPageHeader } from '../components/AdminPageHeader.js';
 import { MockQrDisplay } from '../utils/mockQr.js';
@@ -159,6 +164,26 @@ export const OrdersPage: React.FC = () => {
   const [cancelReasonChoice, setCancelReasonChoice] = useState<string>(CANCEL_REASONS[0]);
   const [cancelOtherText, setCancelOtherText] = useState<string>('');
   const [cancelError, setCancelError] = useState<string | null>(null);
+
+  // Academic Receipt and Map Inspection Modal states
+  const [selectedReceipt, setSelectedReceipt] = useState<any | null>(null);
+  const [isLoadingReceipt, setIsLoadingReceipt] = useState<boolean>(false);
+  const [selectedMapOrder, setSelectedMapOrder] = useState<any | null>(null);
+
+  const openReceiptModal = async (orderId: number) => {
+    setIsLoadingReceipt(true);
+    try {
+      const data = await resolver.request<any>(`/api/orders?receipt=${orderId}`);
+      setSelectedReceipt(data);
+    } catch (err: any) {
+      setToastMessage({
+        text: err.message || 'Unable to load order receipt',
+        type: 'error'
+      });
+    } finally {
+      setIsLoadingReceipt(false);
+    }
+  };
 
   // Clean up blob URL on unmount or when proofBlobUrl changes
   useEffect(() => {
@@ -683,8 +708,22 @@ export const OrdersPage: React.FC = () => {
                       <span className="font-bold text-gray-900 text-sm">{customerDisplayName}</span>
                     </div>
                     {order.address && (
-                      <div className="truncate max-w-[450px] text-gray-600">
-                        <strong className="text-gray-500">Delivery Address:</strong> {order.address}
+                      <div className="text-gray-600 text-xs space-y-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="truncate max-w-[450px]">
+                            <strong className="text-gray-500">Delivery Address:</strong> {order.address}
+                          </div>
+                          {isAdmin && (order.delivery_lat || order.delivery_details?.lat) && (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedMapOrder(order)}
+                              className="text-[11px] font-bold text-[#1565c0] hover:underline flex items-center gap-1 shrink-0 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded border border-blue-200 cursor-pointer"
+                            >
+                              <MapPin className="w-3 h-3 text-[#1565c0]" />
+                              <span>View on map</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
                     )}
                     <div className="pt-0.5">
@@ -747,9 +786,9 @@ export const OrdersPage: React.FC = () => {
                     </div>
 
                     {/* Show rejection reason notes if rejected */}
-                    {rawPaymentStatus === 'REJECTED' && (order.notes || order.payment?.notes) && (
+                    {rawPaymentStatus === 'REJECTED' && (order.rejection_reason || order.notes || order.payment?.notes) && (
                       <div className="text-xs text-red-700 bg-red-50 p-2.5 rounded-lg border border-red-200 break-words">
-                        <strong>Rejection Reason:</strong> {String(order.notes || order.payment?.notes).slice(0, 500)}
+                        <strong>Rejection Reason:</strong> {String(order.rejection_reason || order.notes || order.payment?.notes).slice(0, 500)}
                       </div>
                     )}
 
@@ -931,6 +970,19 @@ export const OrdersPage: React.FC = () => {
                           </button>
                         )}
                       </div>
+                    )}
+
+                    {/* View Receipt Button for Completed Orders (Admin & Customer) */}
+                    {rawOrderStatus === 'COMPLETED' && (
+                      <button
+                        type="button"
+                        disabled={isLoadingReceipt}
+                        onClick={() => openReceiptModal(order.id)}
+                        className="btn btn-outline min-h-[42px] h-[42px] w-full text-sm font-bold gap-2 whitespace-nowrap rounded-xl border-emerald-500 text-emerald-700 hover:bg-emerald-50 cursor-pointer"
+                      >
+                        <Receipt className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                        {isLoadingReceipt ? 'Loading Receipt...' : 'View Receipt'}
+                      </button>
                     )}
                   </div>
                 </div>
@@ -1349,6 +1401,30 @@ export const OrdersPage: React.FC = () => {
           </form>
         )}
       </Modal>
+
+      {/* Academic Order Receipt Modal */}
+      {selectedReceipt && (
+        <Suspense fallback={null}>
+          <ReceiptModal
+            receipt={selectedReceipt}
+            onClose={() => setSelectedReceipt(null)}
+          />
+        </Suspense>
+      )}
+
+      {/* Admin Order Map Inspection Modal */}
+      {selectedMapOrder && (
+        <Suspense fallback={null}>
+          <AdminOrderMapModal
+            isOpen={Boolean(selectedMapOrder)}
+            onClose={() => setSelectedMapOrder(null)}
+            orderNumber={selectedMapOrder.order_number}
+            lat={Number(selectedMapOrder.delivery_lat || selectedMapOrder.delivery_details?.lat)}
+            lng={Number(selectedMapOrder.delivery_lng || selectedMapOrder.delivery_details?.lng)}
+            addressText={selectedMapOrder.address}
+          />
+        </Suspense>
+      )}
     </div>
   );
 };

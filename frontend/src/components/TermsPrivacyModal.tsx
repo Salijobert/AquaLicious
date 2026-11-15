@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { TERMS_CONTENT, TERMS_VERSION } from '../constants/terms.js';
-import { ShieldCheck } from 'lucide-react';
+import { ShieldCheck, AlertCircle, RefreshCw } from 'lucide-react';
 import { Modal } from './Modal.js';
 
 interface TermsPrivacyModalProps {
@@ -8,7 +8,10 @@ interface TermsPrivacyModalProps {
   onClose: () => void;
   onAccept: (termsVersion: string) => void;
   isSubmitting?: boolean;
+  submittingText?: string;
   submitLabel?: string;
+  error?: string | null;
+  onRetry?: () => void;
 }
 
 export const TermsPrivacyModal: React.FC<TermsPrivacyModalProps> = ({
@@ -16,13 +19,16 @@ export const TermsPrivacyModal: React.FC<TermsPrivacyModalProps> = ({
   onClose,
   onAccept,
   isSubmitting = false,
-  submitLabel
+  submittingText,
+  submitLabel,
+  error = null,
+  onRetry
 }) => {
   const [agreed, setAgreed] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
   const acceptBtnRef = useRef<HTMLButtonElement>(null);
 
-  // Reset agreement on open
+  // Reset agreement state on modal open
   useEffect(() => {
     if (isOpen) {
       setAgreed(false);
@@ -57,7 +63,6 @@ export const TermsPrivacyModal: React.FC<TermsPrivacyModalProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
 
-    // Handle Android hardware back button via DOM and Capacitor runtime
     const handleBackButton = (e: Event) => {
       if (!isSubmitting) {
         e.preventDefault();
@@ -87,7 +92,7 @@ export const TermsPrivacyModal: React.FC<TermsPrivacyModalProps> = ({
     };
   }, [isOpen, isSubmitting, onClose]);
 
-  // Trap focus inside modal
+  // Focus modal container on open
   useEffect(() => {
     if (isOpen && modalRef.current) {
       modalRef.current.focus();
@@ -124,50 +129,75 @@ export const TermsPrivacyModal: React.FC<TermsPrivacyModalProps> = ({
           >
             Cancel
           </button>
-          <button
-            ref={acceptBtnRef}
-            type="button"
-            disabled={!agreed || isSubmitting}
-            onClick={() => onAccept(TERMS_VERSION)}
-            className="btn btn-primary btn-sm font-bold text-white px-5 shadow-sm"
-          >
-            {isSubmitting ? 'Saving...' : (submitLabel || 'Accept & Register')}
-          </button>
+          {error ? (
+            <button
+              type="button"
+              disabled={isSubmitting}
+              onClick={() => (onRetry ? onRetry() : onAccept(TERMS_VERSION))}
+              className="btn btn-primary btn-sm font-bold text-white px-5 shadow-sm flex items-center gap-1.5"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Try Again
+            </button>
+          ) : (
+            <button
+              ref={acceptBtnRef}
+              type="button"
+              disabled={!agreed || isSubmitting}
+              onClick={() => onAccept(TERMS_VERSION)}
+              className="btn btn-primary btn-sm font-bold text-white px-5 shadow-sm"
+            >
+              {isSubmitting ? (submittingText || 'Creating your account...') : (submitLabel || 'Accept & Register')}
+            </button>
+          )}
         </div>
       }
     >
-          <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-900 text-[11px] leading-normal font-medium">
-            <strong>Important Notice:</strong> AquaLicious values your trust and complies with Republic Act No. 10173. Please review this notice to understand how your information and payment proofs are collected, stored, and protected.
+      {error && (
+        <div
+          role="alert"
+          className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl font-medium flex items-start gap-2.5"
+        >
+          <AlertCircle className="w-4 h-4 shrink-0 text-red-600 mt-0.5" />
+          <div className="flex-1">
+            <div className="font-bold">Registration could not be completed</div>
+            <div className="text-[11px] mt-0.5">{error}</div>
           </div>
+        </div>
+      )}
 
-          {TERMS_CONTENT.sections.map((section, idx) => (
-            <div key={idx} className="space-y-2">
-              <h3 className="font-bold text-gray-900 text-xs sm:text-sm font-sans border-b border-gray-100 pb-1">
-                {section.title}
-              </h3>
-              {section.paragraphs.map((p, pIdx) => (
-                <p key={pIdx} className="text-gray-600 font-normal">
-                  {p}
-                </p>
-              ))}
-            </div>
+      <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-900 text-[11px] leading-normal font-medium">
+        <strong>Important Notice:</strong> AquaLicious values your trust and complies with Republic Act No. 10173. Please review this notice to understand how your information, pinned delivery locations, and payment proofs are collected, stored, and protected.
+      </div>
+
+      {TERMS_CONTENT.sections.map((section, idx) => (
+        <div key={idx} className="space-y-2">
+          <h3 className="font-bold text-gray-900 text-xs sm:text-sm font-sans border-b border-gray-100 pb-1">
+            {section.title}
+          </h3>
+          {section.paragraphs.map((p, pIdx) => (
+            <p key={pIdx} className="text-gray-600 font-normal">
+              {p}
+            </p>
           ))}
+        </div>
+      ))}
 
-          {/* Consent Checkbox */}
-          <div className="pt-4 border-t border-gray-200">
-            <label className="flex items-start gap-3 p-3.5 bg-blue-50/60 rounded-xl border border-blue-200 cursor-pointer hover:bg-blue-50 transition-colors">
-              <input
-                type="checkbox"
-                checked={agreed}
-                onChange={(e) => setAgreed(e.target.checked)}
-                disabled={isSubmitting}
-                className="checkbox checkbox-primary checkbox-sm mt-0.5 shrink-0"
-              />
-              <span className="text-xs text-gray-800 font-medium leading-snug select-none">
-                I have read and agree to the Terms and Conditions and consent to the processing of my personal data in accordance with the Data Privacy Act of 2012 (RA 10173).
-              </span>
-            </label>
-          </div>
+      {/* Consent Checkbox */}
+      <div className="pt-4 border-t border-gray-200">
+        <label className="flex items-start gap-3 p-3.5 bg-blue-50/60 rounded-xl border border-blue-200 cursor-pointer hover:bg-blue-50 transition-colors">
+          <input
+            type="checkbox"
+            checked={agreed}
+            onChange={(e) => setAgreed(e.target.checked)}
+            disabled={isSubmitting}
+            className="checkbox checkbox-primary checkbox-sm mt-0.5 shrink-0"
+          />
+          <span className="text-xs text-gray-800 font-medium leading-snug select-none">
+            I have read and agree to the Terms and Conditions and consent to the processing of my personal data in accordance with the Data Privacy Act of 2012 (RA 10173).
+          </span>
+        </label>
+      </div>
     </Modal>
   );
 };

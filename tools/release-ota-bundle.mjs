@@ -30,6 +30,7 @@ const minNativeArg = args.find(a => a.startsWith('--minNativeVersion='));
 const notesArg = args.find(a => a.startsWith('--notes='));
 const isMandatory = args.includes('--mandatory');
 const isReSignOnly = args.includes('--re-sign-only');
+const isSkipBuild = args.includes('--skip-build');
 
 const bundleVersion = versionArg ? versionArg.split('=')[1] : '2.0.1';
 const minNativeVersion = minNativeArg ? parseInt(minNativeArg.split('=')[1], 10) : 1;
@@ -76,9 +77,18 @@ const publicZipPath = path.join(publicUpdatesDir, zipFileName);
 const distZipPath = path.join(distUpdatesDir, zipFileName);
 
 if (!isReSignOnly) {
-  // 1. Build frontend distribution
-  console.log('\n[1/5] Building frontend assets (tsc && vite build)...');
-  execSync('npm run build', { cwd: path.join(rootDir, 'frontend'), stdio: 'inherit' });
+  if (!isSkipBuild) {
+    // 1. Build frontend distribution
+    console.log('\n[1/5] Building frontend assets (tsc && vite build)...');
+    execSync('npm run build', { cwd: path.join(rootDir, 'frontend'), stdio: 'inherit' });
+  } else {
+    console.log('\n[1/5] Packaging existing frontend/dist assets directly (--skip-build)...');
+    const distIndexPath = path.join(rootDir, 'frontend', 'dist', 'index.html');
+    if (!fs.existsSync(distIndexPath)) {
+      console.error('ERROR: frontend/dist/index.html not found. Run npm run build in frontend first.');
+      process.exit(1);
+    }
+  }
 
   // 2. Compress dist into zip archive (excluding updates folder)
   console.log('\n[2/5] Compressing web bundle into zip archive...');

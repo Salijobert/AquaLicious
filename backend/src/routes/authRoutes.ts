@@ -167,20 +167,38 @@ router.post('/', async (req: Request, res: Response) => {
     const cleanUsername = sanitize(validData.username).trim();
     const cleanEmail = sanitize(validData.email).trim().toLowerCase();
 
-    // Check username uniqueness
+    // Check username and email uniqueness
     const existingUsername = await prisma.user.findFirst({
       where: { username: cleanUsername }
     });
-    if (existingUsername) {
-      return res.status(409).json({ error: 'Username already in use', code: 'USERNAME_ALREADY_EXISTS' });
-    }
-
-    // Check email uniqueness
     const existingEmail = await prisma.user.findFirst({
       where: { email: cleanEmail }
     });
+
     if (existingEmail) {
+      // Safe retry resumption: if previous registration attempt timed out and user is unverified
+      if (!existingEmail.emailVerified && existingUsername && existingUsername.id === existingEmail.id) {
+        Mailer.enqueueRegistrationVerification(existingEmail.id, existingEmail.email, existingEmail.name).catch((err: any) => {
+          console.error('[Auth] Background retry verification enqueue error:', err?.message || err);
+        });
+        return res.status(200).json({
+          user: {
+            id: existingEmail.id,
+            name: existingEmail.name,
+            username: existingEmail.username,
+            email: existingEmail.email,
+            email_verified: false,
+            role: 'Customer'
+          },
+          token: '',
+          tokenType: 'pending_verification'
+        });
+      }
       return res.status(409).json({ error: 'An account with this email address already exists', code: 'EMAIL_ALREADY_EXISTS' });
+    }
+
+    if (existingUsername) {
+      return res.status(409).json({ error: 'Username already in use', code: 'USERNAME_ALREADY_EXISTS' });
     }
 
     // Sync or create user in Google Firebase Auth
@@ -204,34 +222,68 @@ router.post('/', async (req: Request, res: Response) => {
       }
     }
 
-    const user = await prisma.user.create({
-      data: {
-        firebaseUid,
-        name: sanitize(validData.name),
-        username: cleanUsername,
-        email: cleanEmail,
-        role: Role.CUSTOMER,
-        emailVerified: false,
-        verificationDeadline: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        active: true
-      }
-    });
+    let user;
+    try {
+      user = await prisma.user.create({
+        data: {
+          firebaseUid,
+          name: sanitize(validData.name),
+          username: cleanUsername,
+          email: cleanEmail,
+          role: Role.CUSTOMER,
+          emailVerified: false,
+          verificationDeadline: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          active: true
+        }
+      });
 
-    // Record consent under RA 10173 (Philippine Data Privacy Act of 2012)
-    await prisma.userConsent.create({
-      data: {
-        userId: user.id,
-        consent: true,
-        termsVersion: sanitize(validData.termsVersion),
-        ipAddress: req.ip || req.socket.remoteAddress || null,
-        userAgent: (req.headers['user-agent'] as string) || null
+      // Record consent under RA 10173 (Philippine Data Privacy Act of 2012)
+      await prisma.userConsent.create({
+        data: {
+          userId: user.id,
+          consent: true,
+          termsVersion: sanitize(validData.termsVersion),
+          ipAddress: req.ip || req.socket.remoteAddress || null,
+          userAgent: (req.headers['user-agent'] as string) || null
+        }
+      });
+    } catch (dbErr: any) {
+      if (dbErr?.code === 'P2002') {
+        // Idempotency guard for concurrent double-clicks: check if a sibling request just created this exact user
+        const sibling = await prisma.user.findFirst({
+          where: {
+            OR: [{ email: cleanEmail }, { username: cleanUsername }]
+          }
+        });
+        if (sibling && sibling.email === cleanEmail && sibling.username === cleanUsername && !sibling.emailVerified) {
+          return res.status(200).json({
+            user: {
+              id: sibling.id,
+              name: sibling.name,
+              username: sibling.username,
+              email: sibling.email,
+              email_verified: false,
+              role: 'Customer'
+            },
+            token: '',
+            tokenType: 'pending_verification'
+          });
+        }
+        return res.status(409).json({
+          error: 'An account with this username or email already exists.',
+          code: 'ACCOUNT_CONFLICT'
+        });
       }
-    });
+      console.error('[Auth] Database error creating user profile:', dbErr?.message || dbErr);
+      return res.status(500).json({
+        error: 'Unable to complete registration. Please try again in a moment.',
+        code: 'REGISTRATION_DATABASE_ERROR'
+      });
+    }
 
-    // Generate Firebase verification link & send verification email asynchronously
-    const verificationLink = await buildFirebaseVerificationLink(user.email, user.name);
-    Mailer.sendVerificationEmail(user.email, user.name, verificationLink, user.id).catch((err) => {
-      console.error('[Auth] Verification email dispatch failure:', err);
+    // Enqueue verification email in durable DB-backed outbox (strictly non-blocking and survives process restart)
+    Mailer.enqueueRegistrationVerification(user.id, user.email, user.name).catch((err: any) => {
+      console.error('[Auth] Background registration verification enqueue error:', err?.message || err);
     });
 
     let token = '';

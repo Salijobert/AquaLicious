@@ -372,7 +372,14 @@ export const SalesPage: React.FC = () => {
                   <td className="text-gray-500">
                     {new Date(sale.sold_at || sale.created_at).toLocaleString('en-PH')}
                   </td>
-                  <td>
+                  <td className="space-x-1.5 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => setCompletedReceipt(sale)}
+                      className="btn btn-outline btn-xs font-bold text-[#1565c0] border-blue-300 hover:bg-blue-50"
+                    >
+                      Receipt
+                    </button>
                     {sale.status !== 'VOIDED' && (
                       <button
                         onClick={() => setVoidingSale(sale)}

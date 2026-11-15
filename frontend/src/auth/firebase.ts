@@ -189,7 +189,18 @@ export async function registerCustomer(
       const cred = await createUserWithEmailAndPassword(auth, targetEmail, password);
       createdFirebaseUser = cred.user;
     } catch (fbErr: any) {
-      console.warn('Firebase user creation fallback:', fbErr.message);
+      if (fbErr?.code === 'auth/email-already-in-use') {
+        // Safe retry resumption: user was already created during previous attempt
+        try {
+          const cred = await signInWithEmailAndPassword(auth, targetEmail, password);
+          createdFirebaseUser = cred.user;
+        } catch {
+          // If password doesn't match existing account, throw friendly error
+          throw new Error('An account with this email address already exists. Please log in instead.');
+        }
+      } else {
+        console.warn('Firebase user creation notice:', fbErr?.message || fbErr);
+      }
     }
   }
 
@@ -204,7 +215,8 @@ export async function registerCustomer(
         password,
         consent,
         termsVersion
-      }
+      },
+      timeoutMs: 30000
     });
 
     let finalToken = res.token;
@@ -221,9 +233,10 @@ export async function registerCustomer(
 
     resolver.setToken(finalToken);
     return { token: finalToken, user: res.user };
-  } catch (err) {
-    // If backend step fails, cleanup the orphaned Firebase user
-    if (createdFirebaseUser) {
+  } catch (err: any) {
+    // Only cleanup newly created Firebase user if backend explicitly rejected with conflict/invalid payload
+    // (Never delete if it was a timeout or network error, which could leave orphaned state)
+    if (createdFirebaseUser && err?.status === 422) {
       try {
         await createdFirebaseUser.delete();
       } catch (delErr) {

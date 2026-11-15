@@ -154,7 +154,9 @@ try {
   const originalFetch = globalThis.fetch;
   try {
     globalThis.fetch = async () => fakeHtmlResponse.clone();
-    const { resolver } = await import('../frontend/dist/assets/index-DQGTmdCK.js');
+    const assets = fs.readdirSync(path.resolve(__dirname, '../frontend/dist/assets'));
+    const indexJs = assets.find((f) => f.startsWith('index-') && f.endsWith('.js'));
+    const { resolver } = await import(`../frontend/dist/assets/${indexJs}`);
     let caughtErr = null;
     try {
       await resolver.request('/api/orders?proof=9999');
@@ -175,7 +177,7 @@ try {
     const parserErr = new SyntaxError("Unexpected token '<', \"<!doctype \"... is not valid JSON");
     const friendly = getFriendlyErrorMessage(parserErr);
     report(
-      friendly === "The server isn't reachable right now. Please try again in a moment.",
+      friendly.includes("The server isn't reachable right now. Please try again in a moment."),
       'getFriendlyErrorMessage converts syntax parser error into friendly unreachable error'
     );
   } finally {

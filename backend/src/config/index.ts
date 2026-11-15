@@ -107,6 +107,7 @@ export const config = {
     : true,
   unpaidOrderTtlMinutes: Math.max(1, parseInt(process.env.UNPAID_ORDER_TTL_MINUTES || '120', 10) || 120),
   maxUnpaidPendingOrders: Math.max(1, parseInt(process.env.MAX_UNPAID_PENDING_ORDERS || '3', 10) || 3),
+  deliveryRequireCoords: process.env.DELIVERY_REQUIRE_COORDS === 'true',
   buildId: resolveBuildId()
 };
 

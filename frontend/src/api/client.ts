@@ -231,6 +231,13 @@ export function useCreateOrder() {
       items: Array<{ product_id: number; qty: number }>;
       fulfillment: 'PICKUP' | 'DELIVERY';
       address?: string;
+      delivery_lat?: number | null;
+      delivery_lng?: number | null;
+      delivery_street?: string | null;
+      delivery_barangay?: string | null;
+      delivery_landmark?: string | null;
+      delivery_contact?: string | null;
+      coords?: { lat: number; lng: number } | null;
       method: 'CASH' | 'E_WALLET';
       expected_total?: number | string;
       request_key: string;

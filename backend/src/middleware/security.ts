@@ -5,15 +5,31 @@ import cors, { CorsOptions } from 'cors';
 import { Request, Response, NextFunction } from 'express';
 import { config } from '../config/index.js';
 
-// Helmet Security Headers
+// Helmet Security Headers - strict exact domains without wildcards
 export const securityHeaders = helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "'unsafe-inline'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
-      connectSrc: ["'self'", 'https:', 'http:', 'ws:', 'wss:']
+      imgSrc: [
+        "'self'",
+        'data:',
+        'blob:',
+        'https://tile.openstreetmap.org',
+        'https://a.tile.openstreetmap.org',
+        'https://b.tile.openstreetmap.org',
+        'https://c.tile.openstreetmap.org'
+      ],
+      connectSrc: [
+        "'self'",
+        'https://nominatim.openstreetmap.org',
+        'https://identitytoolkit.googleapis.com',
+        'https://securetoken.googleapis.com',
+        'https://muscular-donator-uncloak.ngrok-free.dev',
+        'https://localhost',
+        'capacitor://localhost'
+      ]
     }
   },
   crossOriginResourcePolicy: { policy: 'cross-origin' }

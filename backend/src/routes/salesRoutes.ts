@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { SalesService } from '../services/salesService.js';
+import { OrderService } from '../services/orderService.js';
 import { authenticate, requireRole, verifyAdminApproval } from '../middleware/auth.js';
 import { idempotencyMiddleware } from '../middleware/idempotency.js';
 import { Role } from '@prisma/client';
@@ -7,8 +8,37 @@ import { prisma, config } from '../config/index.js';
 
 const router = Router();
 
+// Academic receipt viewing for sales
+router.get('/receipt/:id', authenticate, async (req: Request, res: Response) => {
+  try {
+    const receipt = await OrderService.getOrderReceipt(Number(req.params.id), req.user!);
+    return res.json(receipt);
+  } catch (err: any) {
+    return res.status(err.status || 500).json({ error: err.message || 'Receipt generation failed' });
+  }
+});
+
+router.get('/:id/receipt', authenticate, async (req: Request, res: Response) => {
+  try {
+    const receipt = await OrderService.getOrderReceipt(Number(req.params.id), req.user!);
+    return res.json(receipt);
+  } catch (err: any) {
+    return res.status(err.status || 500).json({ error: err.message || 'Receipt generation failed' });
+  }
+});
+
 // Admin list sales
 router.get('/', authenticate, requireRole(Role.ADMIN), async (req: Request, res: Response) => {
+  const receipt = req.query.receipt ? Number(req.query.receipt) : null;
+  if (receipt) {
+    try {
+      const receiptData = await OrderService.getOrderReceipt(receipt, req.user!);
+      return res.json(receiptData);
+    } catch (err: any) {
+      return res.status(err.status || 500).json({ error: err.message || 'Receipt generation failed' });
+    }
+  }
+
   const id = req.query.id ? Number(req.query.id) : null;
   if (id) {
     const sale = await SalesService.getById(id);

@@ -204,16 +204,41 @@ export function getFriendlyErrorMessage(err: any): string {
     return 'Your session has expired. Please sign in again.';
   }
   if (
+    code === 'TIMEOUT' ||
+    message.includes('signal timed out') ||
+    message.includes('TimeoutError') ||
+    message.includes('timed out')
+  ) {
+    return 'The request took too long to complete. Please try again in a moment. [NET-TIMEOUT]';
+  }
+  if (
     code === 'SERVER_UNREACHABLE' ||
     code === 'INVALID_JSON_RESPONSE' ||
     code === 'INVALID_IMAGE_RESPONSE' ||
+    message.includes('Failed to fetch') ||
+    message.includes('NetworkError') ||
     message.includes('Unexpected token') ||
     message.includes('is not valid JSON') ||
     message.includes('JSON.parse') ||
     message.includes('<!DOCTYPE') ||
     message.includes('<!doctype')
   ) {
-    return "The server isn't reachable right now. Please try again in a moment.";
+    return "The server isn't reachable right now. Please try again in a moment. [NET-01]";
+  }
+  if (code === 'OUTSIDE_SERVICE_AREA' || message.includes('Angeles City')) {
+    return 'Sorry, we only deliver within Angeles City, Pampanga.';
+  }
+  if (code === 'COORDINATES_REQUIRED') {
+    return 'Please update the app or refresh the page to choose your delivery location on the map.';
+  }
+  if (code === 'auth/email-already-in-use' || message.includes('email-already-in-use')) {
+    return 'An account with this email address already exists. Please log in instead.';
+  }
+  if (code === 'auth/weak-password' || message.includes('weak-password')) {
+    return 'Password is too weak. Please use at least 6 characters.';
+  }
+  if (code === 'auth/network-request-failed' || message.includes('network-request-failed')) {
+    return 'Network connection problem with authentication service. Please check your connection.';
   }
   if (code === 'PICKUP_REQUIRES_EWALLET') {
     return 'Station pickup orders require E-Wallet payment (GCash / Maya). Cash is available for Delivery only.';

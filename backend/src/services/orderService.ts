@@ -114,6 +114,10 @@ function serializeOrderRecord(o: any, viewerRole: Role | string) {
     }
   }
 
+  const rejectionReason = (o.paymentStatus === PaymentStatus.REJECTED || o.paymentStatus === 'REJECTED') ? (o.notes || null) : null;
+  const deliveryLat = o.deliveryLat !== undefined && o.deliveryLat !== null ? Number(o.deliveryLat) : null;
+  const deliveryLng = o.deliveryLng !== undefined && o.deliveryLng !== null ? Number(o.deliveryLng) : null;
+
   return {
     id: o.id,
     order_number: o.orderNumber,
@@ -128,8 +132,25 @@ function serializeOrderRecord(o: any, viewerRole: Role | string) {
     payment: {
       method: paymentMethod,
       status: o.paymentStatus,
-      reference_number: o.paymentReference
+      reference_number: o.paymentReference,
+      notes: o.notes,
+      rejection_reason: rejectionReason
     },
+    rejection_reason: rejectionReason,
+    delivery_lat: deliveryLat,
+    delivery_lng: deliveryLng,
+    delivery_street: o.deliveryStreet ?? null,
+    delivery_barangay: o.deliveryBarangay ?? null,
+    delivery_landmark: o.deliveryLandmark ?? null,
+    delivery_contact: o.deliveryContact ?? null,
+    delivery_details: (deliveryLat !== null || o.deliveryStreet) ? {
+      lat: deliveryLat,
+      lng: deliveryLng,
+      street: o.deliveryStreet ?? null,
+      barangay: o.deliveryBarangay ?? null,
+      landmark: o.deliveryLandmark ?? null,
+      contact: o.deliveryContact ?? null
+    } : null,
     reference_number: o.paymentReference,
     has_proof: !!o.proofBase64,
     status: o.orderStatus,
@@ -172,11 +193,32 @@ export class OrderService {
     items: Array<{ product_id: number; qty: number }>;
     fulfillment: 'PICKUP' | 'DELIVERY';
     address?: string;
+    deliveryLat?: number | null;
+    deliveryLng?: number | null;
+    deliveryStreet?: string | null;
+    deliveryBarangay?: string | null;
+    deliveryLandmark?: string | null;
+    deliveryContact?: string | null;
     method: 'CASH' | 'E_WALLET' | string;
     expectedTotal?: number | string;
     requestKey?: string;
   }) {
-    const { userId, userRole, items, fulfillment, address, method, expectedTotal, requestKey } = params;
+    const {
+      userId,
+      userRole,
+      items,
+      fulfillment,
+      address,
+      deliveryLat,
+      deliveryLng,
+      deliveryStreet,
+      deliveryBarangay,
+      deliveryLandmark,
+      deliveryContact,
+      method,
+      expectedTotal,
+      requestKey
+    } = params;
 
     if (method !== 'CASH' && method !== 'E_WALLET') {
       throw { status: 422, message: 'Invalid payment method. Only Cash and E-Wallet are accepted.' };
@@ -301,6 +343,12 @@ export class OrderService {
       const pMethod = method === 'E_WALLET' ? PaymentMethod.E_WALLET : PaymentMethod.CASH;
       const oType = fulfillment === 'DELIVERY' ? OrderType.DELIVERY : OrderType.PICKUP;
 
+      const constructedAddress = address
+        ? sanitize(address)
+        : (deliveryStreet
+            ? `${sanitize(deliveryStreet)}${deliveryBarangay ? `, ${sanitize(deliveryBarangay)}` : ''}, Angeles City, Pampanga${deliveryLandmark ? ` (Landmark: ${sanitize(deliveryLandmark)})` : ''}`
+            : null);
+
       // 4. Create Order with status PENDING
       const order = await tx.salesOrder.create({
         data: {
@@ -309,7 +357,13 @@ export class OrderService {
           customerId: userId,
           customerName,
           orderType: oType,
-          deliveryAddress: address ? sanitize(address) : null,
+          deliveryAddress: constructedAddress,
+          deliveryLat: typeof deliveryLat === 'number' ? deliveryLat : null,
+          deliveryLng: typeof deliveryLng === 'number' ? deliveryLng : null,
+          deliveryStreet: deliveryStreet ? sanitize(deliveryStreet) : null,
+          deliveryBarangay: deliveryBarangay ? sanitize(deliveryBarangay) : null,
+          deliveryLandmark: deliveryLandmark ? sanitize(deliveryLandmark) : null,
+          deliveryContact: deliveryContact ? sanitize(deliveryContact) : null,
           subtotal: calculatedSubtotal,
           tax: 0,
           discount: 0,
@@ -360,6 +414,9 @@ export class OrderService {
         subtotal: l.subtotal
       }));
 
+      const orderDeliveryLat = order.deliveryLat !== undefined && order.deliveryLat !== null ? Number(order.deliveryLat) : null;
+      const orderDeliveryLng = order.deliveryLng !== undefined && order.deliveryLng !== null ? Number(order.deliveryLng) : null;
+
       return {
         id: order.id,
         order_number: order.orderNumber,
@@ -372,6 +429,20 @@ export class OrderService {
           method: order.paymentMethod,
           status: order.paymentStatus
         },
+        delivery_lat: orderDeliveryLat,
+        delivery_lng: orderDeliveryLng,
+        delivery_street: order.deliveryStreet ?? null,
+        delivery_barangay: order.deliveryBarangay ?? null,
+        delivery_landmark: order.deliveryLandmark ?? null,
+        delivery_contact: order.deliveryContact ?? null,
+        delivery_details: (orderDeliveryLat !== null || order.deliveryStreet) ? {
+          lat: orderDeliveryLat,
+          lng: orderDeliveryLng,
+          street: order.deliveryStreet ?? null,
+          barangay: order.deliveryBarangay ?? null,
+          landmark: order.deliveryLandmark ?? null,
+          contact: order.deliveryContact ?? null
+        } : null,
         status: order.orderStatus,
         fulfillment: order.orderType,
         allowed_actions: computeAllowedOrderActions(
@@ -537,6 +608,69 @@ export class OrderService {
     }
 
     return serializeOrderRecord(order, user.role);
+  }
+
+  /**
+   * Retrieves an academic demonstrative receipt snapshot for an order.
+   * Strictly Demonstration / Academic: zero BIR/TIN/VAT claims.
+   * Only exposes customer-facing snapshot values (unitPrice, quantity, subtotal, total).
+   * Never leaks internal unit costs or profit margins.
+   */
+  static async getOrderReceipt(id: number, user: { id: number; role: Role }) {
+    const order = await prisma.salesOrder.findUnique({
+      where: { id },
+      include: {
+        items: {
+          include: {
+            product: { select: { id: true, name: true, sku: true } }
+          }
+        },
+        user: { select: { id: true, name: true, username: true } }
+      }
+    });
+
+    if (!order) {
+      throw { status: 404, message: 'Order not found' };
+    }
+
+    if (user.role === Role.CUSTOMER && order.userId !== user.id) {
+      throw { status: 403, message: 'You do not have permission to view this receipt.' };
+    }
+
+    const customerName = order.customerName || order.user?.name || 'Customer';
+
+    return {
+      receipt_number: `RCP-${order.orderNumber.replace('ORD-', '')}`,
+      order_number: order.orderNumber,
+      order_date: order.createdAt.toISOString(),
+      customer_name: customerName,
+      customer_username: order.user?.username,
+      fulfillment: order.orderType,
+      delivery_address: order.deliveryAddress,
+      delivery_details: (order.deliveryLat !== null || order.deliveryStreet) ? {
+        lat: order.deliveryLat !== null ? Number(order.deliveryLat) : null,
+        lng: order.deliveryLng !== null ? Number(order.deliveryLng) : null,
+        street: order.deliveryStreet,
+        barangay: order.deliveryBarangay,
+        landmark: order.deliveryLandmark,
+        contact: order.deliveryContact
+      } : null,
+      payment_method: order.paymentMethod === 'E_WALLET' ? 'E-Wallet' : 'Cash',
+      payment_status: order.paymentStatus,
+      order_status: order.orderStatus,
+      items: order.items.map((item) => ({
+        product_name: item.product.name,
+        sku: item.product.sku,
+        quantity: item.quantity,
+        unit_price: Number(item.unitPrice).toFixed(2),
+        subtotal: Number(item.subtotal).toFixed(2)
+      })),
+      subtotal: Number(order.subtotal).toFixed(2),
+      discount: Number(order.discount).toFixed(2),
+      tax: Number(order.tax).toFixed(2),
+      total: Number(order.totalAmount).toFixed(2),
+      disclaimer: 'System-generated order receipt. For demonstration purposes only. Not an official receipt.'
+    };
   }
 
   static async getPendingSummary(limit = 5) {
