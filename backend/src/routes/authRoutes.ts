@@ -74,8 +74,13 @@ async function buildFirebasePasswordResetLink(email: string, name?: string, emai
       }
     }
 
+    let targetFrontendUrl = (config.frontendUrl || 'https://aqualicious.vercel.app').replace(/\/$/, '');
+    if (targetFrontendUrl.includes('localhost') && process.env.AQ_MOCK_MAIL !== 'true') {
+      targetFrontendUrl = 'https://aqualicious.vercel.app';
+    }
+
     const rawLink = await admin.auth().generatePasswordResetLink(cleanEmail, {
-      url: `${config.frontendUrl}/reset-password-complete`
+      url: `${targetFrontendUrl}/reset-password-complete`
     });
 
     const parsed = new URL(rawLink);
@@ -89,7 +94,7 @@ async function buildFirebasePasswordResetLink(email: string, name?: string, emai
       oobCode
     });
 
-    return `${config.frontendUrl}/reset-password-complete?${query.toString()}`;
+    return `${targetFrontendUrl}/reset-password-complete?${query.toString()}`;
   } catch (err: any) {
     console.warn('[Auth] Firebase generatePasswordResetLink warning:', err.message);
     return null;

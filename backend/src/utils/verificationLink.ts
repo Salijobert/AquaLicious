@@ -10,6 +10,12 @@ export async function buildFirebaseVerificationLink(email: string, name?: string
   const cleanEmail = email.trim().toLowerCase();
   let oobCode = '';
 
+  let targetFrontendUrl = (config.frontendUrl || 'https://aqualicious.vercel.app').replace(/\/$/, '');
+  // Guard: If real SMTP mail is enabled, outbound email links must never point to localhost
+  if (targetFrontendUrl.includes('localhost') && process.env.AQ_MOCK_MAIL !== 'true') {
+    targetFrontendUrl = 'https://aqualicious.vercel.app';
+  }
+
   if (admin.apps.length > 0) {
     try {
       try {
@@ -23,7 +29,7 @@ export async function buildFirebaseVerificationLink(email: string, name?: string
       }
 
       const rawLink = await admin.auth().generateEmailVerificationLink(cleanEmail, {
-        url: `${config.frontendUrl}/verify-email-complete`
+        url: `${targetFrontendUrl}/verify-email-complete`
       });
 
       const parsed = new URL(rawLink);
@@ -40,5 +46,5 @@ export async function buildFirebaseVerificationLink(email: string, name?: string
     query.set('oobCode', oobCode);
   }
 
-  return `${config.frontendUrl}/verify-email-complete?${query.toString()}`;
+  return `${targetFrontendUrl}/verify-email-complete?${query.toString()}`;
 }
