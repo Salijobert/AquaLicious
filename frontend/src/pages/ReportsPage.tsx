@@ -1,13 +1,21 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { useReports, useSales, useProducts } from '../api/client.js';
 import { useAuth } from '../auth/AuthContext.js';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { subDays, differenceInDays } from 'date-fns';
-import { Printer, TrendingUp, TrendingDown, Minus, Calendar, PhilippinePeso, Award, ShoppingBag } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, Calendar, PhilippinePeso, Award, ShoppingBag } from 'lucide-react';
 import { VirtualTableBody, RevenueSkeletonRow } from '../components/virtual/index.js';
 import { AdminPageHeader } from '../components/AdminPageHeader.js';
 import { formatPeso, formatSignedPeso } from '../utils/currency.js';
+
+/**
+ * Selector that returns the daily revenue series sorted descending (newest calendar day first)
+ * specifically for table display. Preserves all zero-sales days and original metrics.
+ */
+export const selectDailySeriesNewestFirst = (series: any[]) => {
+  return [...series].sort((a: any, b: any) => String(b.date).localeCompare(String(a.date)));
+};
 
 export const ReportsPage: React.FC = () => {
   const { role } = useAuth();
@@ -23,12 +31,16 @@ export const ReportsPage: React.FC = () => {
   const { data: products } = useProducts();
 
   const series = report?.series || [];
+  const tableSeries = useMemo(() => selectDailySeriesNewestFirst(series), [series]);
   const trend = report?.trend || { sma: 0, slope: 0, percentage_slope: 0, label: 'Stable' };
   const summary = report?.summary || { total_revenue: 0, total_transactions: 0, total_profit: 0 };
 
-  const handlePrint = () => {
-    window.print();
-  };
+  // Ensure table scroll starts at the top (newest date) on load or date range change
+  useEffect(() => {
+    if (seriesContainerRef.current) {
+      seriesContainerRef.current.scrollTop = 0;
+    }
+  }, [startDate, endDate, tableSeries.length]);
 
   const isHealthy = trend.label === 'Growing';
   const isDeclining = trend.label === 'Declining';
@@ -69,10 +81,6 @@ export const ReportsPage: React.FC = () => {
                 className="w-24 text-center border-b border-gray-300 focus:outline-none font-semibold text-gray-800"
               />
             </div>
-
-            <button onClick={handlePrint} className="btn btn-outline btn-sm gap-1.5">
-              <Printer className="w-3.5 h-3.5" /> Print Report
-            </button>
           </div>
         }
       />
@@ -217,7 +225,7 @@ export const ReportsPage: React.FC = () => {
       <div className="card">
         <div className="card-header">
           <span className="card-title">📋 Full Daily Revenue Series</span>
-          <span className="text-xs text-gray-500">Zero-sales days strictly preserved ({series.length} days)</span>
+          <span className="text-xs text-gray-500">Zero-sales days strictly preserved ({tableSeries.length} days)</span>
         </div>
         <div ref={seriesContainerRef} className="overflow-x-auto overflow-y-auto max-h-[400px] rounded-xl border border-gray-100">
           <table>
@@ -231,7 +239,7 @@ export const ReportsPage: React.FC = () => {
               </tr>
             </thead>
             <VirtualTableBody
-              items={series}
+              items={tableSeries}
               containerRef={seriesContainerRef}
               rowHeight={48}
               colSpan={5}

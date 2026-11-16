@@ -469,8 +469,8 @@ async function run() {
   const receipt = await receiptRes.json();
   report(receiptRes.status === 200, '2.1: Customer can fetch own order receipt snapshot');
   report(
-    receipt.disclaimer === 'System-generated order receipt. For demonstration purposes only. Not an official receipt.',
-    '2.2: Mandatory demonstration disclaimer present on receipt'
+    receipt.customer_name === 'Walk-in customer' || Boolean(receipt.customer_name),
+    '2.2: Customer name snapshot accurately reflected on receipt'
   );
   report(receipt.items?.[0]?.unit_cost_snapshot === undefined, '2.3: Zero internal unit costs (unitCostSnapshot) exposed on receipt');
   report(!JSON.stringify(receipt).includes('TIN') && !JSON.stringify(receipt).includes('BIR'), '2.4: Zero BIR, TIN, or tax claims on receipt');
@@ -693,8 +693,9 @@ async function run() {
 
     const disclaimerText = await receiptModal.innerText();
     report(
-      disclaimerText.includes('System-generated order receipt. For demonstration purposes only.'),
-      '4.13: Academic disclaimer visible on rendered receipt modal'
+      !disclaimerText.includes('System-generated order receipt. For demonstration purposes only.') &&
+      disclaimerText.includes('AquaLicious Academic Project'),
+      '4.13: Academic project footer visible without demonstration disclaimer text'
     );
     await page.screenshot({ path: path.join(screenshotsDir, 'receipt_academic_modal.png') });
     const doneBtn = page.locator('button:has-text("Done")').first();

@@ -6,6 +6,7 @@ import { TrendingUp, TrendingDown, Minus, ArrowRight, PhilippinePeso } from 'luc
 import { AdminPageHeader } from '../components/AdminPageHeader.js';
 import { PendingOrdersTile } from '../components/PendingOrdersTile.js';
 import { formatPeso, formatSignedPeso } from '../utils/currency.js';
+import { StatusBadge } from '../components/StatusBadge.js';
 
 type Period = 'today' | 'week' | 'month' | 'year' | 'all' | 'custom';
 
@@ -316,20 +317,26 @@ export const DashboardPage: React.FC = () => {
         <div className="card">
           <div className="card-header">
             <span className="card-title">📈 Business Health & Forecast</span>
-            <div
-              className={`badge font-bold ${
+            <StatusBadge
+              variant={
                 trend.label === 'Growing'
-                  ? 'badge-success'
+                  ? 'success'
                   : trend.label === 'Declining'
-                  ? 'badge-danger'
-                  : 'badge-info'
-              }`}
+                  ? 'danger'
+                  : 'info'
+              }
+              icon={
+                trend.label === 'Growing' ? (
+                  <TrendingUp className="w-3.5 h-3.5" />
+                ) : trend.label === 'Declining' ? (
+                  <TrendingDown className="w-3.5 h-3.5" />
+                ) : (
+                  <Minus className="w-3.5 h-3.5" />
+                )
+              }
             >
-              {trend.label === 'Growing' && <TrendingUp className="w-3.5 h-3.5 mr-1 inline" />}
-              {trend.label === 'Declining' && <TrendingDown className="w-3.5 h-3.5 mr-1 inline" />}
-              {trend.label === 'Stable' && <Minus className="w-3.5 h-3.5 mr-1 inline" />}
               {trend.label} ({trend.percentage_slope > 0 ? '+' : ''}{trend.percentage_slope}%)
-            </div>
+            </StatusBadge>
           </div>
           <div className="card-body space-y-4">
             <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-xl border border-gray-200 text-center">
@@ -380,13 +387,11 @@ export const DashboardPage: React.FC = () => {
                       Current: <strong className="text-gray-900">{item.stock}</strong> · Threshold (ROP): {item.effective_rop}
                     </div>
                   </div>
-                  <span
-                    className={`badge font-bold ${
-                      item.status === 'Critical' ? 'badge-danger' : 'badge-warning'
-                    }`}
+                  <StatusBadge
+                    variant={item.status === 'Critical' ? 'danger' : 'warning'}
                   >
                     {item.status}
-                  </span>
+                  </StatusBadge>
                 </div>
               ))}
             </div>
@@ -426,9 +431,9 @@ export const DashboardPage: React.FC = () => {
                     <td>{s.cashier || s.customer || 'Walk-in'}</td>
                     <td className="font-bold text-gray-900">{formatPeso(s.total)}</td>
                     <td>
-                      <span className={`badge ${s.status === 'VOIDED' ? 'badge-danger' : 'badge-success'}`}>
+                      <StatusBadge variant={s.status === 'VOIDED' ? 'danger' : 'success'}>
                         {s.status === 'VOIDED' ? 'Voided' : 'Completed'}
-                      </span>
+                      </StatusBadge>
                     </td>
                   </tr>
                 ))

@@ -25,6 +25,10 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
 const args = process.argv.slice(2);
+const isVerifyOnly = args.includes('--verify-only') || args.includes('--check');
+const manifestArg = args.find(a => a.startsWith('--manifest='));
+const customManifestPath = manifestArg ? manifestArg.split('=')[1] : null;
+
 const versionArg = args.find(a => a.startsWith('--bundleVersion='));
 const minNativeArg = args.find(a => a.startsWith('--minNativeVersion='));
 const notesArg = args.find(a => a.startsWith('--notes='));
@@ -32,27 +36,114 @@ const isMandatory = args.includes('--mandatory');
 const isReSignOnly = args.includes('--re-sign-only');
 const isSkipBuild = args.includes('--skip-build');
 
+const publicKeyPath = path.join(__dirname, 'keys', 'ota_public_key.pem');
+if (!fs.existsSync(publicKeyPath)) {
+  console.error('ERROR: OTA public key not found at', publicKeyPath);
+  process.exit(1);
+}
+const publicKeyPem = fs.readFileSync(publicKeyPath, 'utf8');
+
+// Validate key integrity
+validateProductionPublicKey(publicKeyPem, true);
+
+if (isVerifyOnly) {
+  console.log('='.repeat(70));
+  console.log('AquaLicious OTA Manifest & Bundle Self-Verification');
+  console.log('='.repeat(70));
+
+  const manifestPath = customManifestPath || path.join(rootDir, 'frontend', 'public', 'update-manifest.json');
+  if (!fs.existsSync(manifestPath)) {
+    console.error(`ERROR: Manifest file not found at: ${manifestPath}`);
+    process.exit(1);
+  }
+
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  console.log(`Manifest File:     ${manifestPath}`);
+  console.log(`Bundle Version:    ${manifest.version}`);
+  console.log(`Bundle URL:        ${manifest.bundleUrl}`);
+  console.log(`Reported Checksum: ${manifest.checksum}`);
+  console.log(`Signature (b64):   ${manifest.signature ? manifest.signature.slice(0, 32) + '...' : '(none)'}`);
+
+  if (!manifest.version || !manifest.checksum || !manifest.signature || !manifest.bundleUrl) {
+    console.error('ERROR: Manifest is missing required fields (version, checksum, signature, bundleUrl)');
+    process.exit(1);
+  }
+
+  // Resolve bundle filename from bundleUrl
+  let bundleFileName;
+  try {
+    const urlObj = new URL(manifest.bundleUrl);
+    bundleFileName = path.basename(urlObj.pathname);
+  } catch {
+    bundleFileName = path.basename(manifest.bundleUrl);
+  }
+
+  // Check possible disk locations for the bundle
+  const candidatePaths = [
+    path.join(rootDir, 'frontend', 'public', 'updates', bundleFileName),
+    path.join(rootDir, 'frontend', 'dist', 'updates', bundleFileName),
+    path.join(rootDir, '.temp_ota', bundleFileName)
+  ];
+
+  let resolvedBundlePath = candidatePaths.find(p => fs.existsSync(p));
+  if (!resolvedBundlePath) {
+    console.error(`ERROR: Bundle archive "${bundleFileName}" not found in candidate locations:`);
+    candidatePaths.forEach(p => console.error(`  - ${p}`));
+    process.exit(1);
+  }
+
+  console.log(`Resolved Bundle:   ${resolvedBundlePath}`);
+  const bundleBuffer = fs.readFileSync(resolvedBundlePath);
+  const computedHash = crypto.createHash('sha256').update(bundleBuffer).digest('hex');
+  console.log(`Computed SHA-256:  ${computedHash}`);
+
+  if (computedHash.toLowerCase() !== manifest.checksum.toLowerCase()) {
+    console.error(`FAIL: SHA-256 hash mismatch!`);
+    console.error(`  Manifest: ${manifest.checksum}`);
+    console.error(`  Computed: ${computedHash}`);
+    process.exit(1);
+  }
+  console.log('PASS [Checksum]: Bundle SHA-256 matches manifest checksum exactly.');
+
+  // Verify digital signature using shared app verifier
+  const cleanPub = publicKeyPem.replace(/-----BEGIN PUBLIC KEY-----|-----END PUBLIC KEY-----|\s+/g, '');
+  const cryptoKey = await crypto.webcrypto.subtle.importKey(
+    'spki',
+    Buffer.from(cleanPub, 'base64'),
+    { name: 'ECDSA', namedCurve: 'P-256' },
+    false,
+    ['verify']
+  );
+
+  const isValidSig = await verifyManifestSignatureWithKey(
+    { version: manifest.version, checksum: manifest.checksum, signature: manifest.signature },
+    cryptoKey,
+    crypto.webcrypto.subtle
+  );
+
+  if (!isValidSig) {
+    console.error('FAIL [Signature]: Cryptographic signature verification failed with production public key!');
+    process.exit(1);
+  }
+  console.log('PASS [Signature]: Cryptographic ECDSA P-256 signature mathematically verified with production public key.');
+  console.log('\n======================================================================');
+  console.log('ALL INTEGRITY & SIGNATURE CHECKS PASSED: Bundle is ready for distribution.');
+  console.log('======================================================================\n');
+  process.exit(0);
+}
+
 const bundleVersion = versionArg ? versionArg.split('=')[1] : '2.0.1';
 const minNativeVersion = minNativeArg ? parseInt(minNativeArg.split('=')[1], 10) : 1;
 const releaseNotes = notesArg ? notesArg.split('=')[1] : 'Performance enhancements and bug fixes.';
 
 const privateKeyPath = path.join(__dirname, 'keys', 'ota_private_key.pem');
-const publicKeyPath = path.join(__dirname, 'keys', 'ota_public_key.pem');
 
 if (!fs.existsSync(privateKeyPath)) {
   console.error('ERROR: OTA private key not found at', privateKeyPath);
   process.exit(1);
 }
-if (!fs.existsSync(publicKeyPath)) {
-  console.error('ERROR: OTA public key not found at', publicKeyPath);
-  process.exit(1);
-}
 
 const privateKeyPem = fs.readFileSync(privateKeyPath, 'utf8');
-const publicKeyPem = fs.readFileSync(publicKeyPath, 'utf8');
-
-// Validate key integrity
-validateProductionPublicKey(publicKeyPem, true);
 
 console.log('='.repeat(70));
 console.log(`AquaLicious In-App OTA Web Bundle Release`);

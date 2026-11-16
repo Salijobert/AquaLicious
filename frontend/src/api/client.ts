@@ -184,7 +184,7 @@ export interface PaginatedOrdersResponse {
 
 export function useOrdersInfinite(options?: { status?: string; limit?: number; enabled?: boolean }) {
   const statusParam = options?.status && options.status !== 'ALL' ? options.status : undefined;
-  const pageSize = options?.limit ?? 40;
+  const pageSize = options?.limit ?? 50;
 
   return useInfiniteQuery<PaginatedOrdersResponse>({
     queryKey: ['orders', 'paginated', statusParam || 'ALL', pageSize],
@@ -202,6 +202,7 @@ export function useOrdersInfinite(options?: { status?: string; limit?: number; e
     },
     getNextPageParam: (lastPage) => (lastPage.has_more ? lastPage.offset + lastPage.limit : undefined),
     refetchInterval: 5000,
+    retry: 1,
     enabled: options?.enabled ?? true
   });
 }

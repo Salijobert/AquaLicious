@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Modal } from '../components/Modal.js';
+import { StatusBadge } from '../components/StatusBadge.js';
 import { useUsers, useCreateUser, useUpdateUser, useDeleteUser } from '../api/client.js';
 import { useAuth } from '../auth/AuthContext.js';
 import { UserPlus, Shield, UserCheck, UserX, Trash2, AlertTriangle } from 'lucide-react';
@@ -23,6 +24,7 @@ export const UsersPage: React.FC = () => {
   const [userToDelete, setUserToDelete] = useState<any | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteSuccess, setDeleteSuccess] = useState<string | null>(null);
+  const [pageNotice, setPageNotice] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
 
   const usersContainerRef = useRef<HTMLDivElement>(null);
 
@@ -59,8 +61,11 @@ export const UsersPage: React.FC = () => {
         id: user.id,
         active: user.active ? 0 : 1
       });
+      setPageNotice({ type: 'success', message: `User ${user.username} active status updated.` });
+      setTimeout(() => setPageNotice(null), 4000);
     } catch (err: any) {
-      alert(err.message || 'Cannot toggle user active state');
+      setPageNotice({ type: 'error', message: err.message || 'Cannot toggle user active state' });
+      setTimeout(() => setPageNotice(null), 5000);
     }
   };
 
@@ -100,6 +105,17 @@ export const UsersPage: React.FC = () => {
         <div className="p-3 bg-emerald-50 text-emerald-800 rounded-xl border border-emerald-200 text-xs font-semibold flex items-center justify-between shadow-xs">
           <span>✓ {deleteSuccess}</span>
           <button onClick={() => setDeleteSuccess(null)} className="text-emerald-600 hover:text-emerald-900 font-bold ml-2">✕</button>
+        </div>
+      )}
+
+      {pageNotice && (
+        <div className={`p-3 rounded-xl border text-xs font-semibold flex items-center justify-between shadow-xs ${
+          pageNotice.type === 'error'
+            ? 'bg-red-50 text-red-800 border-red-200'
+            : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+        }`}>
+          <span>{pageNotice.type === 'error' ? '✕' : '✓'} {pageNotice.message}</span>
+          <button onClick={() => setPageNotice(null)} className="font-bold ml-2">✕</button>
         </div>
       )}
 
@@ -150,22 +166,18 @@ export const UsersPage: React.FC = () => {
                   </td>
                   <td className="font-mono text-gray-700">{u.username}</td>
                   <td>
-                    <span
-                      className={`badge ${
-                        u.role === 'Administrator' ? 'badge-info' : 'badge-warning'
-                      }`}
+                    <StatusBadge
+                      variant={u.role === 'Administrator' ? 'info' : 'warning'}
                     >
                       {u.role}
-                    </span>
+                    </StatusBadge>
                   </td>
                   <td>
-                    <span
-                      className={`badge ${
-                        u.active ? 'badge-success' : 'badge-danger'
-                      }`}
+                    <StatusBadge
+                      variant={u.active ? 'success' : 'danger'}
                     >
                       {u.active ? 'Active' : 'Disabled'}
-                    </span>
+                    </StatusBadge>
                   </td>
                   <td className="text-gray-500">
                     {new Date(u.created_at || Date.now()).toLocaleDateString('en-PH')}

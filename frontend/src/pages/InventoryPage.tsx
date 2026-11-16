@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Modal } from '../components/Modal.js';
+import { StatusBadge } from '../components/StatusBadge.js';
 import { useInventory, useAdjustStock } from '../api/client.js';
 import { useAuth } from '../auth/AuthContext.js';
 import { Calculator, Plus, History, AlertTriangle } from 'lucide-react';
@@ -141,13 +142,11 @@ export const InventoryPage: React.FC = () => {
                         <span className="text-[10px] text-gray-500">{pct}% capacity</span>
                       </td>
                       <td>
-                        <span
-                          className={`badge ${
-                            isCritical ? 'badge-danger' : isWarning ? 'badge-warning' : 'badge-success'
-                          }`}
+                        <StatusBadge
+                          variant={isCritical ? 'danger' : isWarning ? 'warning' : 'success'}
                         >
                           {p.status || (isCritical ? 'Low Stock' : 'In Stock')}
-                        </span>
+                        </StatusBadge>
                       </td>
                       {isAdmin && (
                         <td>

@@ -1,29 +1,43 @@
 import React from 'react';
-import { useVirtualScroll } from './useVirtualScroll.js';
+import { useVirtualScroll, INITIAL_LOAD } from './useVirtualScroll.js';
 
 export interface VirtualCardListProps<T> {
   items: T[] | undefined | null;
   containerRef?: React.RefObject<HTMLElement | null>;
   itemHeight?: number;
   renderItem: (item: T, index: number) => React.ReactNode;
-  renderSkeletonItem: (index: number) => React.ReactNode;
+  renderSkeletonItem?: (index: number) => React.ReactNode;
   emptyContent?: React.ReactNode;
   className?: string;
   overscan?: number;
   velocityThreshold?: number;
   fastScrollCooldownMs?: number;
+  showFooter?: boolean;
 }
+
+interface MemoizedCardProps<T> {
+  item: T;
+  index: number;
+  renderItem: (item: T, index: number) => React.ReactNode;
+}
+
+const MemoizedCard = React.memo(
+  function MemoizedCard<T>({ item, index, renderItem }: MemoizedCardProps<T>) {
+    return <>{renderItem(item, index)}</>;
+  },
+  (prev, next) => prev.item === next.item && prev.index === next.index
+) as <T>(props: MemoizedCardProps<T>) => React.ReactElement;
 
 export function VirtualCardList<T>({
   items,
   containerRef,
   itemHeight = 210,
   renderItem,
-  renderSkeletonItem,
   emptyContent,
   className = 'space-y-4',
-  velocityThreshold = 0.6,
-  fastScrollCooldownMs = 160
+  velocityThreshold = 0.8,
+  fastScrollCooldownMs = 150,
+  showFooter = true
 }: VirtualCardListProps<T>): React.ReactElement {
   const safeItems = items || [];
   const itemCount = safeItems.length;
@@ -72,26 +86,24 @@ export function VirtualCardList<T>({
         const item = safeItems[vItem.index];
         if (!item) return null;
 
-        if (isScrollingFast) {
-          return (
-            <React.Fragment key={`skel-${vItem.index}`}>
-              {renderSkeletonItem(vItem.index)}
-            </React.Fragment>
-          );
-        }
-
-        const stableKey = (item as any)?.id !== undefined ? (item as any).id : vItem.index;
+        const stableKey =
+          (item as any)?.id !== undefined
+            ? (item as any).id
+            : (item as any)?.order_number || vItem.index;
 
         return (
-          <React.Fragment key={stableKey}>
-            {renderItem(item, vItem.index)}
-          </React.Fragment>
+          <MemoizedCard
+            key={stableKey}
+            item={item}
+            index={vItem.index}
+            renderItem={renderItem}
+          />
         );
       })}
 
-      {/* Accessible fallback & counter for lists > 40 items */}
-      {itemCount > 40 && (
-        <div className="text-center py-4 text-xs text-gray-500 font-medium">
+      {/* Accessible fallback & quiet end-of-list counter for lists > 50 items */}
+      {showFooter && itemCount > INITIAL_LOAD && (
+        <div className="text-center py-4 text-xs text-gray-500 font-medium" data-testid="virtual-cards-footer">
           Showing <span className="font-bold text-gray-700">{visibleCount}</span> of <span className="font-bold text-gray-700">{itemCount}</span> items
           {hasMore && (
             <button

@@ -55,6 +55,15 @@ body {
   min-height: 100vh;
 }
 
+/* DOCUMENTED UNIFIED Z-INDEX SCALE:
+   Header / Navbar:       50
+   Drawer Backdrop:       1000
+   Drawer Panel:          1050
+   Modal Backdrop:        1100
+   Modal Card:            1101
+   Toasts / System Alert: 1200
+*/
+
 /* SIDEBAR */
 .sidebar {
   width: var(--sidebar-w);
@@ -69,6 +78,10 @@ body {
   z-index: 50;
   box-shadow: var(--shadow-sm);
   transition: transform 0.25s ease-in-out;
+}
+
+.sidebar.drawer-open {
+  z-index: 1050;
 }
 
 .sidebar-brand {
@@ -168,6 +181,7 @@ body {
 
 .sidebar-footer {
   padding: 1rem 1.25rem;
+  padding-bottom: max(var(--safe-bottom, 0px), var(--sab, 0px), 1rem);
   border-top: 1px solid var(--blue-pale);
   background: white;
 }
@@ -442,10 +456,15 @@ tbody tr:hover {
 .badge {
   display: inline-flex;
   align-items: center;
-  padding: 0.25rem 0.7rem;
-  border-radius: 20px;
+  justify-content: center;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
   font-size: 0.72rem;
   font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+  min-width: max-content;
+  box-sizing: border-box;
 }
 
 .badge-success { background: var(--green-pale);  color: var(--green); }
@@ -504,9 +523,10 @@ tbody tr:hover {
 .aq-modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  z-index: 1100;
   background: rgba(15, 23, 42, 0.56);
   backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -515,6 +535,15 @@ tbody tr:hover {
   padding-left: max(var(--safe-left, 0px), 1rem);
   padding-right: max(var(--safe-right, 0px), 1rem);
   box-sizing: border-box;
+}
+
+.aq-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(15, 23, 42, 0.56);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 .aq-modal-card {
@@ -535,7 +564,7 @@ tbody tr:hover {
   max-height: calc(100vh - var(--safe-top, 0px) - var(--safe-bottom, 0px) - 2rem);
   max-height: calc(100dvh - var(--safe-top, 0px) - var(--safe-bottom, 0px) - 2rem);
   animation: slideUp 0.2s ease;
-  z-index: 1001;
+  z-index: 1101;
   box-sizing: border-box;
 }
 

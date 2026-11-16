@@ -5,12 +5,15 @@ import { Link, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import {
   Search, ShoppingCart, Droplet, ShieldCheck, Award,
   Truck, Clock, MapPin, Phone, CheckCircle2,
-  Smartphone, Minus, Check, Plus
+  Smartphone, Minus, Check, Plus, LogIn, Package, AlertCircle
 } from 'lucide-react';
 import { PageLoadingSpinner } from '../components/RouteGuards.js';
 import { BottleGraphic } from '../components/WaterBottleGraphics.js';
 import { AboutStationModal } from '../components/AboutStationModal.js';
 import { CustomerAppModal } from '../components/CustomerAppModal.js';
+import { OrderStatusTracker } from '../components/OrderStatusTracker.js';
+import { StatusBadge } from '../components/StatusBadge.js';
+import { formatOrderStatus } from '../utils/orderLabels.js';
 import { COPY } from '../constants/copy.js';
 import { isCapacitorApp } from '../utils/platform.js';
 import { formatPeso } from '../utils/currency.js';
@@ -47,6 +50,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
   const [quantities, setQuantities] = useState<Record<number, number>>({});
   const [addedAnimation, setAddedAnimation] = useState<number | null>(null);
   const [quickAddedKey, setQuickAddedKey] = useState<string | null>(null);
+  const [quickNotice, setQuickNotice] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
 
   // Modals
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
@@ -86,55 +90,64 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
     }
   };
 
+  const candidateMatchers: Record<string, ((p: any) => boolean)[]> = {
+    SLIM_REFILL: [
+      (p: any) => p.sku === 'REF-SLIM-5GAL',
+      (p: any) => (p.name?.toLowerCase().includes('refill') || p.sku?.toLowerCase().includes('ref')) && (p.volume_label?.toLowerCase().includes('slim') || p.name?.toLowerCase().includes('slim')),
+      (p: any) => p.name?.toLowerCase().includes('mineral refill'),
+      (p: any) => p.name?.toLowerCase().includes('refill')
+    ],
+    ROUND_REFILL: [
+      (p: any) => p.sku === 'REF-ROUND-5GAL',
+      (p: any) => (p.name?.toLowerCase().includes('refill') || p.sku?.toLowerCase().includes('ref')) && (p.volume_label?.toLowerCase().includes('round') || p.name?.toLowerCase().includes('round')),
+      (p: any) => p.sku === 'REF-SLIM-5GAL',
+      (p: any) => p.name?.toLowerCase().includes('mineral refill'),
+      (p: any) => p.name?.toLowerCase().includes('refill')
+    ],
+    SLIM_CONTAINER: [
+      (p: any) => p.sku === 'NEW-SLIM-5GAL',
+      (p: any) => p.name?.toLowerCase().includes('slim') && (p.name?.toLowerCase().includes('bottle') || p.name?.toLowerCase().includes('container') || p.name?.toLowerCase().includes('water')),
+      (p: any) => p.sku?.toLowerCase().includes('slim')
+    ],
+    ROUND_CONTAINER: [
+      (p: any) => p.sku === 'NEW-ROUND-5GAL',
+      (p: any) => p.name?.toLowerCase().includes('round') && (p.name?.toLowerCase().includes('bottle') || p.name?.toLowerCase().includes('container') || p.name?.toLowerCase().includes('water')),
+      (p: any) => p.sku?.toLowerCase().includes('round')
+    ]
+  };
+
+  const getQuickProduct = (targetKey: 'SLIM_REFILL' | 'ROUND_REFILL' | 'SLIM_CONTAINER' | 'ROUND_CONTAINER') => {
+    const matchers = candidateMatchers[targetKey] || [];
+    for (const matcher of matchers) {
+      const found = products?.find(matcher);
+      if (found) return found;
+    }
+    return null;
+  };
+
   const handleQuickRefill = (targetKey: 'SLIM_REFILL' | 'ROUND_REFILL' | 'SLIM_CONTAINER' | 'ROUND_CONTAINER') => {
     if (!user) {
       navigate('/login', { state: { from: location } });
       return;
     }
 
-    const candidateMatchers: Record<string, ((p: any) => boolean)[]> = {
-      SLIM_REFILL: [
-        (p: any) => p.sku === 'REF-SLIM-5GAL',
-        (p: any) => (p.name?.toLowerCase().includes('refill') || p.sku?.toLowerCase().includes('ref')) && (p.volume_label?.toLowerCase().includes('slim') || p.name?.toLowerCase().includes('slim')),
-        (p: any) => p.name?.toLowerCase().includes('mineral refill'),
-        (p: any) => p.name?.toLowerCase().includes('refill')
-      ],
-      ROUND_REFILL: [
-        (p: any) => p.sku === 'REF-ROUND-5GAL',
-        (p: any) => (p.name?.toLowerCase().includes('refill') || p.sku?.toLowerCase().includes('ref')) && (p.volume_label?.toLowerCase().includes('round') || p.name?.toLowerCase().includes('round')),
-        (p: any) => p.sku === 'REF-SLIM-5GAL',
-        (p: any) => p.name?.toLowerCase().includes('mineral refill'),
-        (p: any) => p.name?.toLowerCase().includes('refill')
-      ],
-      SLIM_CONTAINER: [
-        (p: any) => p.sku === 'NEW-SLIM-5GAL',
-        (p: any) => p.name?.toLowerCase().includes('slim') && (p.name?.toLowerCase().includes('bottle') || p.name?.toLowerCase().includes('container') || p.name?.toLowerCase().includes('water')),
-        (p: any) => p.sku?.toLowerCase().includes('slim')
-      ],
-      ROUND_CONTAINER: [
-        (p: any) => p.sku === 'NEW-ROUND-5GAL',
-        (p: any) => p.name?.toLowerCase().includes('round') && (p.name?.toLowerCase().includes('bottle') || p.name?.toLowerCase().includes('container') || p.name?.toLowerCase().includes('water')),
-        (p: any) => p.sku?.toLowerCase().includes('round')
-      ]
-    };
-
-    const matchers = candidateMatchers[targetKey] || [];
-    let match: any = null;
-    for (const matcher of matchers) {
-      const found = products?.find(matcher);
-      if (found) {
-        match = found;
-        break;
-      }
-    }
+    const match = getQuickProduct(targetKey);
 
     if (!match) {
-      alert('This refill product is currently not available in station inventory.');
+      setQuickNotice({
+        type: 'error',
+        message: 'This refill product is currently not available in station inventory.'
+      });
+      setTimeout(() => setQuickNotice(null), 3500);
       return;
     }
 
     if (match.stock <= 0) {
-      alert(`${match.name} is currently out of stock.`);
+      setQuickNotice({
+        type: 'error',
+        message: `${match.name} is currently out of stock.`
+      });
+      setTimeout(() => setQuickNotice(null), 3500);
       return;
     }
 
@@ -149,10 +162,17 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
     }
   };
 
-  // Active customer order (if logged in)
-  const activeOrder = customerOrders?.find((o: any) =>
-    o.status === 'PENDING' || o.status === 'ACCEPTED' || o.status === 'PREPARING' || o.status === 'READY_FOR_PICKUP' || o.status === 'OUTFORDELIVERY'
-  );
+  // Select customer's most relevant order:
+  // 1. Most recent active order (PENDING, ACCEPTED, PREPARING, READY_FOR_PICKUP, OUT_FOR_DELIVERY)
+  // 2. Fallback to most recent completed/cancelled/voided order if no active order exists
+  // 3. Null if user has no orders at all
+  const relevantOrder = React.useMemo(() => {
+    if (!customerOrders || customerOrders.length === 0) return null;
+    const active = customerOrders.find((o: any) =>
+      ['PENDING', 'ACCEPTED', 'PREPARING', 'READY_FOR_PICKUP', 'OUT_FOR_DELIVERY'].includes(String(o.status || '').toUpperCase())
+    );
+    return active || customerOrders[0] || null;
+  }, [customerOrders]);
 
   return (
     <main id="main-content" className="space-y-8 pt-4 pb-16 max-w-7xl mx-auto px-4 sm:px-8">
@@ -259,134 +279,244 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
                 </span>
               </div>
 
+              {quickNotice && (
+                <div
+                  role="alert"
+                  className={`p-2.5 rounded-xl text-xs font-medium flex items-center gap-2 animate-in fade-in duration-200 ${
+                    quickNotice.type === 'error'
+                      ? 'bg-red-50 border border-red-200 text-red-700'
+                      : 'bg-green-50 border border-green-200 text-green-700'
+                  }`}
+                >
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{quickNotice.message}</span>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                 {/* Slim Refill */}
-                <div className="p-3.5 rounded-2xl bg-gradient-to-br from-[#f8fbfe] to-[#eef6fc] border border-[#e3f2fd] flex items-center justify-between gap-3 hover:border-[#90caf9] transition-all">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 shrink-0">
-                      <BottleGraphic category="Slim" name="Slim Refill" className="w-12 h-12" />
+                {(() => {
+                  const p = getQuickProduct('SLIM_REFILL');
+                  const isOutOfStock = !p || p.stock <= 0 || p.is_archived;
+                  const isLowStock = p && p.stock > 0 && p.stock <= 5;
+                  return (
+                    <div className="p-3.5 rounded-2xl bg-gradient-to-br from-[#f8fbfe] to-[#eef6fc] border border-[#e3f2fd] flex items-center justify-between gap-3 hover:border-[#90caf9] transition-all">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 shrink-0">
+                          <BottleGraphic category="Slim" name="Slim Refill" className="w-12 h-12" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-[#0b3d91]">5-Gal Slim Refill</div>
+                          <div className="text-[11px] text-slate-500">Purified Mineral Water</div>
+                          {isLowStock && <div className="text-[10px] font-bold text-amber-700">Only {p.stock} left</div>}
+                        </div>
+                      </div>
+                      {user ? (
+                        <button
+                          onClick={() => handleQuickRefill('SLIM_REFILL')}
+                          disabled={isOutOfStock}
+                          aria-disabled={isOutOfStock}
+                          className={`px-3 py-2 rounded-xl text-xs font-bold shadow-xs transition-all flex items-center gap-1 shrink-0 ${
+                            quickAddedKey === 'SLIM_REFILL'
+                              ? 'bg-[#2e7d32] text-white'
+                              : isOutOfStock
+                              ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                              : 'bg-[#1565c0] hover:bg-[#0b3d91] text-white'
+                          }`}
+                          title={isOutOfStock ? 'Out of stock' : 'Quick Add 5-Gal Slim Refill'}
+                        >
+                          {isOutOfStock ? (
+                            'Out of stock'
+                          ) : quickAddedKey === 'SLIM_REFILL' ? (
+                            <>
+                              <Check className="w-3.5 h-3.5" /> Added
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="w-3.5 h-3.5" /> Add
+                            </>
+                          )}
+                        </button>
+                      ) : (
+                        <Link
+                          to="/login"
+                          className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-[#e3f2fd] hover:bg-[#bbdefb] text-[#1565c0] transition-all shrink-0 flex items-center gap-1"
+                        >
+                          <LogIn className="w-3 h-3" />
+                          <span>Log in</span>
+                        </Link>
+                      )}
                     </div>
-                    <div>
-                      <div className="text-xs font-bold text-[#0b3d91]">5-Gal Slim Refill</div>
-                      <div className="text-[11px] text-slate-500">Purified Mineral Water</div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleQuickRefill('SLIM_REFILL')}
-                    className={`px-3 py-2 rounded-xl text-xs font-bold shadow-xs transition-all flex items-center gap-1 shrink-0 ${
-                      quickAddedKey === 'SLIM_REFILL'
-                        ? 'bg-[#2e7d32] text-white'
-                        : 'bg-[#1565c0] hover:bg-[#0b3d91] text-white'
-                    }`}
-                    title="Quick Add 5-Gal Slim Refill"
-                  >
-                    {quickAddedKey === 'SLIM_REFILL' ? (
-                      <>
-                        <Check className="w-3.5 h-3.5" /> Added
-                      </>
-                    ) : (
-                      <>
-                        <Plus className="w-3.5 h-3.5" /> Add
-                      </>
-                    )}
-                  </button>
-                </div>
+                  );
+                })()}
 
                 {/* Round Refill */}
-                <div className="p-3.5 rounded-2xl bg-gradient-to-br from-[#f8fbfe] to-[#eef6fc] border border-[#e3f2fd] flex items-center justify-between gap-3 hover:border-[#90caf9] transition-all">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 shrink-0">
-                      <BottleGraphic category="Round" name="Round Refill" className="w-12 h-12" />
+                {(() => {
+                  const p = getQuickProduct('ROUND_REFILL');
+                  const isOutOfStock = !p || p.stock <= 0 || p.is_archived;
+                  const isLowStock = p && p.stock > 0 && p.stock <= 5;
+                  return (
+                    <div className="p-3.5 rounded-2xl bg-gradient-to-br from-[#f8fbfe] to-[#eef6fc] border border-[#e3f2fd] flex items-center justify-between gap-3 hover:border-[#90caf9] transition-all">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 shrink-0">
+                          <BottleGraphic category="Round" name="Round Refill" className="w-12 h-12" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-[#0b3d91]">5-Gal Round Refill</div>
+                          <div className="text-[11px] text-slate-500">Water Dispenser Bottle</div>
+                          {isLowStock && <div className="text-[10px] font-bold text-amber-700">Only {p.stock} left</div>}
+                        </div>
+                      </div>
+                      {user ? (
+                        <button
+                          onClick={() => handleQuickRefill('ROUND_REFILL')}
+                          disabled={isOutOfStock}
+                          aria-disabled={isOutOfStock}
+                          className={`px-3 py-2 rounded-xl text-xs font-bold shadow-xs transition-all flex items-center gap-1 shrink-0 ${
+                            quickAddedKey === 'ROUND_REFILL'
+                              ? 'bg-[#2e7d32] text-white'
+                              : isOutOfStock
+                              ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                              : 'bg-[#1565c0] hover:bg-[#0b3d91] text-white'
+                          }`}
+                          title={isOutOfStock ? 'Out of stock' : 'Quick Add 5-Gal Round Refill'}
+                        >
+                          {isOutOfStock ? (
+                            'Out of stock'
+                          ) : quickAddedKey === 'ROUND_REFILL' ? (
+                            <>
+                              <Check className="w-3.5 h-3.5" /> Added
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="w-3.5 h-3.5" /> Add
+                            </>
+                          )}
+                        </button>
+                      ) : (
+                        <Link
+                          to="/login"
+                          className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-[#e3f2fd] hover:bg-[#bbdefb] text-[#1565c0] transition-all shrink-0 flex items-center gap-1"
+                        >
+                          <LogIn className="w-3 h-3" />
+                          <span>Log in</span>
+                        </Link>
+                      )}
                     </div>
-                    <div>
-                      <div className="text-xs font-bold text-[#0b3d91]">5-Gal Round Refill</div>
-                      <div className="text-[11px] text-slate-500">Water Dispenser Bottle</div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleQuickRefill('ROUND_REFILL')}
-                    className={`px-3 py-2 rounded-xl text-xs font-bold shadow-xs transition-all flex items-center gap-1 shrink-0 ${
-                      quickAddedKey === 'ROUND_REFILL'
-                        ? 'bg-[#2e7d32] text-white'
-                        : 'bg-[#1565c0] hover:bg-[#0b3d91] text-white'
-                    }`}
-                    title="Quick Add 5-Gal Round Refill"
-                  >
-                    {quickAddedKey === 'ROUND_REFILL' ? (
-                      <>
-                        <Check className="w-3.5 h-3.5" /> Added
-                      </>
-                    ) : (
-                      <>
-                        <Plus className="w-3.5 h-3.5" /> Add
-                      </>
-                    )}
-                  </button>
-                </div>
+                  );
+                })()}
 
                 {/* Slim with Container */}
-                <div className="p-3.5 rounded-2xl bg-gradient-to-br from-[#f8fbfe] to-[#eef6fc] border border-[#e3f2fd] flex items-center justify-between gap-3 hover:border-[#90caf9] transition-all">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 shrink-0">
-                      <BottleGraphic category="Slim" name="Slim Container" className="w-12 h-12" />
+                {(() => {
+                  const p = getQuickProduct('SLIM_CONTAINER');
+                  const isOutOfStock = !p || p.stock <= 0 || p.is_archived;
+                  const isLowStock = p && p.stock > 0 && p.stock <= 5;
+                  return (
+                    <div className="p-3.5 rounded-2xl bg-gradient-to-br from-[#f8fbfe] to-[#eef6fc] border border-[#e3f2fd] flex items-center justify-between gap-3 hover:border-[#90caf9] transition-all">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 shrink-0">
+                          <BottleGraphic category="Slim" name="Slim Container" className="w-12 h-12" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-[#0b3d91]">Slim + Container</div>
+                          <div className="text-[11px] text-slate-500">New Reusable Bottle</div>
+                          {isLowStock && <div className="text-[10px] font-bold text-amber-700">Only {p.stock} left</div>}
+                        </div>
+                      </div>
+                      {user ? (
+                        <button
+                          onClick={() => handleQuickRefill('SLIM_CONTAINER')}
+                          disabled={isOutOfStock}
+                          aria-disabled={isOutOfStock}
+                          className={`px-3 py-2 rounded-xl text-xs font-bold shadow-xs transition-all flex items-center gap-1 shrink-0 ${
+                            quickAddedKey === 'SLIM_CONTAINER'
+                              ? 'bg-[#2e7d32] text-white'
+                              : isOutOfStock
+                              ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                              : 'bg-white text-[#1565c0] hover:bg-[#e3f2fd] border border-[#bbdefb]'
+                          }`}
+                          title={isOutOfStock ? 'Out of stock' : 'Add New Slim Container'}
+                        >
+                          {isOutOfStock ? (
+                            'Out of stock'
+                          ) : quickAddedKey === 'SLIM_CONTAINER' ? (
+                            <>
+                              <Check className="w-3.5 h-3.5" /> Added
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="w-3.5 h-3.5" /> Bottle
+                            </>
+                          )}
+                        </button>
+                      ) : (
+                        <Link
+                          to="/login"
+                          className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-[#e3f2fd] hover:bg-[#bbdefb] text-[#1565c0] transition-all shrink-0 flex items-center gap-1"
+                        >
+                          <LogIn className="w-3 h-3" />
+                          <span>Log in</span>
+                        </Link>
+                      )}
                     </div>
-                    <div>
-                      <div className="text-xs font-bold text-[#0b3d91]">Slim + Container</div>
-                      <div className="text-[11px] text-slate-500">New Reusable Bottle</div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleQuickRefill('SLIM_CONTAINER')}
-                    className={`px-3 py-2 rounded-xl text-xs font-bold shadow-xs transition-all flex items-center gap-1 shrink-0 ${
-                      quickAddedKey === 'SLIM_CONTAINER'
-                        ? 'bg-[#2e7d32] text-white'
-                        : 'bg-white text-[#1565c0] hover:bg-[#e3f2fd] border border-[#bbdefb]'
-                    }`}
-                    title="Add New Slim Container"
-                  >
-                    {quickAddedKey === 'SLIM_CONTAINER' ? (
-                      <>
-                        <Check className="w-3.5 h-3.5" /> Added
-                      </>
-                    ) : (
-                      <>
-                        <Plus className="w-3.5 h-3.5" /> Bottle
-                      </>
-                    )}
-                  </button>
-                </div>
+                  );
+                })()}
 
                 {/* Round with Container */}
-                <div className="p-3.5 rounded-2xl bg-gradient-to-br from-[#f8fbfe] to-[#eef6fc] border border-[#e3f2fd] flex items-center justify-between gap-3 hover:border-[#90caf9] transition-all">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 shrink-0">
-                      <BottleGraphic category="Round" name="Round Container" className="w-12 h-12" />
+                {(() => {
+                  const p = getQuickProduct('ROUND_CONTAINER');
+                  const isOutOfStock = !p || p.stock <= 0 || p.is_archived;
+                  const isLowStock = p && p.stock > 0 && p.stock <= 5;
+                  return (
+                    <div className="p-3.5 rounded-2xl bg-gradient-to-br from-[#f8fbfe] to-[#eef6fc] border border-[#e3f2fd] flex items-center justify-between gap-3 hover:border-[#90caf9] transition-all">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 shrink-0">
+                          <BottleGraphic category="Round" name="Round Container" className="w-12 h-12" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-[#0b3d91]">Round + Container</div>
+                          <div className="text-[11px] text-slate-500">Cooler Dispenser Jug</div>
+                          {isLowStock && <div className="text-[10px] font-bold text-amber-700">Only {p.stock} left</div>}
+                        </div>
+                      </div>
+                      {user ? (
+                        <button
+                          onClick={() => handleQuickRefill('ROUND_CONTAINER')}
+                          disabled={isOutOfStock}
+                          aria-disabled={isOutOfStock}
+                          className={`px-3 py-2 rounded-xl text-xs font-bold shadow-xs transition-all flex items-center gap-1 shrink-0 ${
+                            quickAddedKey === 'ROUND_CONTAINER'
+                              ? 'bg-[#2e7d32] text-white'
+                              : isOutOfStock
+                              ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                              : 'bg-white text-[#1565c0] hover:bg-[#e3f2fd] border border-[#bbdefb]'
+                          }`}
+                          title={isOutOfStock ? 'Out of stock' : 'Add New Round Container'}
+                        >
+                          {isOutOfStock ? (
+                            'Out of stock'
+                          ) : quickAddedKey === 'ROUND_CONTAINER' ? (
+                            <>
+                              <Check className="w-3.5 h-3.5" /> Added
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="w-3.5 h-3.5" /> Bottle
+                            </>
+                          )}
+                        </button>
+                      ) : (
+                        <Link
+                          to="/login"
+                          className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-[#e3f2fd] hover:bg-[#bbdefb] text-[#1565c0] transition-all shrink-0 flex items-center gap-1"
+                        >
+                          <LogIn className="w-3 h-3" />
+                          <span>Log in</span>
+                        </Link>
+                      )}
                     </div>
-                    <div>
-                      <div className="text-xs font-bold text-[#0b3d91]">Round + Container</div>
-                      <div className="text-[11px] text-slate-500">Cooler Dispenser Jug</div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleQuickRefill('ROUND_CONTAINER')}
-                    className={`px-3 py-2 rounded-xl text-xs font-bold shadow-xs transition-all flex items-center gap-1 shrink-0 ${
-                      quickAddedKey === 'ROUND_CONTAINER'
-                        ? 'bg-[#2e7d32] text-white'
-                        : 'bg-white text-[#1565c0] hover:bg-[#e3f2fd] border border-[#bbdefb]'
-                    }`}
-                    title="Add New Round Container"
-                  >
-                    {quickAddedKey === 'ROUND_CONTAINER' ? (
-                      <>
-                        <Check className="w-3.5 h-3.5" /> Added
-                      </>
-                    ) : (
-                      <>
-                        <Plus className="w-3.5 h-3.5" /> Bottle
-                      </>
-                    )}
-                  </button>
-                </div>
+                  );
+                })()}
               </div>
             </div>
 
@@ -398,58 +528,46 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
                     <Truck className="w-4 h-4 text-[#1565c0]" />
                     <h3 className="text-sm font-bold text-[#0b3d91]">Order Status</h3>
                   </div>
-                  <span className="text-[10px] uppercase font-bold text-[#2e7d32] bg-[#e8f5e9] px-2 py-0.5 rounded-full">
-                    {user ? 'Account' : 'Tracking'}
-                  </span>
+                  {relevantOrder ? (
+                    <span className="text-[10px] uppercase tracking-wider font-bold text-[#1565c0] bg-[#e3f2fd] px-2.5 py-0.5 rounded-full">
+                      {relevantOrder.fulfillment === 'DELIVERY' ? 'Delivery' : 'Pickup'}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] uppercase tracking-wider font-bold text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full">
+                      {user ? 'My Orders' : 'Tracking'}
+                    </span>
+                  )}
                 </div>
 
                 {user ? (
-                  activeOrder ? (
+                  relevantOrder ? (
                     <div className="space-y-3 p-3.5 rounded-2xl bg-[#f5f9ff] border border-[#bbdefb]">
                       <div className="flex justify-between items-center text-xs">
-                        <span className="font-mono font-bold text-[#1565c0]">#{activeOrder.order_number}</span>
-                        <span className="badge badge-warning text-[10px] font-bold">
-                          {activeOrder.status}
-                        </span>
+                        <span className="font-mono font-bold text-[#1565c0]">#{relevantOrder.order_number}</span>
+                        <StatusBadge
+                          variant={
+                            relevantOrder.status === 'COMPLETED'
+                              ? 'success'
+                              : relevantOrder.status === 'CANCELLED' || relevantOrder.status === 'VOIDED'
+                              ? 'danger'
+                              : 'primary'
+                          }
+                        >
+                          {formatOrderStatus(relevantOrder.status)}
+                        </StatusBadge>
                       </div>
 
-                      <div className="pt-2 pb-1">
-                        <div className="grid grid-cols-4 gap-1 text-center text-[9px] font-bold mb-1">
-                          <span className="text-[#1565c0]">Placed</span>
-                          <span className={activeOrder.status !== 'PENDING' ? 'text-[#1565c0]' : 'text-slate-300'}>
-                            Processing
-                          </span>
-                          <span className={activeOrder.status === 'READY_FOR_PICKUP' || activeOrder.status === 'OUTFORDELIVERY' || activeOrder.status === 'COMPLETED' ? 'text-[#1565c0]' : 'text-slate-300'}>
-                            Ready
-                          </span>
-                          <span className={activeOrder.status === 'COMPLETED' ? 'text-[#2e7d32]' : 'text-slate-300'}>
-                            Done
-                          </span>
-                        </div>
-                        <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden flex">
-                          <div
-                            className="bg-[#1565c0] h-full transition-all duration-500"
-                            style={{
-                              width:
-                                activeOrder.status === 'COMPLETED'
-                                  ? '100%'
-                                  : activeOrder.status === 'READY_FOR_PICKUP' || activeOrder.status === 'OUTFORDELIVERY'
-                                  ? '75%'
-                                  : activeOrder.status === 'ACCEPTED' || activeOrder.status === 'PREPARING'
-                                  ? '50%'
-                                  : '25%'
-                            }}
-                          ></div>
-                        </div>
+                      <div className="pt-1 pb-1">
+                        <OrderStatusTracker order={relevantOrder} />
                       </div>
 
-                      <div className="text-[11px] text-slate-600 flex justify-between pt-1">
-                        <span>Fulfillment: <strong>{activeOrder.fulfillment}</strong></span>
-                        <span>Total: <strong className="text-[#0b3d91]">{formatPeso(activeOrder.expected_total || 0)}</strong></span>
+                      <div className="text-[11px] text-slate-600 flex justify-between pt-1 border-t border-blue-100/60">
+                        <span>Fulfillment: <strong>{relevantOrder.fulfillment === 'DELIVERY' ? 'Delivery' : 'Pickup'}</strong></span>
+                        <span>Total: <strong className="text-[#0b3d91]">{formatPeso(relevantOrder.total || relevantOrder.total_amount || 0)}</strong></span>
                       </div>
 
                       <Link
-                        to="/orders"
+                        to={`/orders?orderId=${relevantOrder.id}`}
                         className="w-full py-2 rounded-xl bg-[#1565c0] hover:bg-[#0b3d91] text-white text-xs font-bold text-center block transition-all shadow-xs"
                       >
                         View Order Details
@@ -457,17 +575,20 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
                     </div>
                   ) : (
                     <div className="text-center py-6 px-3 bg-[#f5f7fa] rounded-2xl border border-[#eceff1] space-y-2">
-                      <CheckCircle2 className="w-8 h-8 text-[#2e7d32] mx-auto opacity-75" />
-                      <div className="text-xs font-bold text-slate-800">No active orders</div>
+                      <Package className="w-8 h-8 text-slate-400 mx-auto opacity-75" />
+                      <div className="text-xs font-bold text-slate-800">No orders yet</div>
                       <p className="text-[11px] text-slate-500 leading-tight">
                         Place a refill order below for pickup or delivery.
                       </p>
-                      <Link
-                        to="/orders"
-                        className="inline-block text-[11px] font-bold text-[#1565c0] hover:underline pt-1"
+                      <button
+                        type="button"
+                        onClick={() => {
+                          document.getElementById('products-catalog')?.scrollIntoView({ behavior: 'smooth' });
+                        }}
+                        className="inline-block text-[11px] font-bold text-[#1565c0] hover:underline pt-1 cursor-pointer"
                       >
-                        View Past Orders →
-                      </Link>
+                        Browse Products ↓
+                      </button>
                     </div>
                   )
                 ) : (
@@ -559,6 +680,37 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
                 />
               </div>
             </div>
+
+            {/* Logged-Out Guest Prompt */}
+            {!user && (
+              <div className="bg-[#e3f2fd]/70 border border-[#bbdefb] rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-[#1565c0] text-white flex items-center justify-center shrink-0 shadow-xs">
+                    <LogIn className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-[#0b3d91]">Browsing Store Catalog</div>
+                    <div className="text-[11px] text-slate-600">
+                      Log in or create a customer account to add items to your cart, pin delivery locations, and place orders.
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Link
+                    to="/login"
+                    className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-[#1565c0] hover:bg-[#0b3d91] text-white shadow-xs transition-all"
+                  >
+                    Log In
+                  </Link>
+                  <Link
+                    to="/register"
+                    className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white text-[#1565c0] hover:bg-[#e3f2fd] border border-[#bbdefb] transition-all"
+                  >
+                    Register
+                  </Link>
+                </div>
+              </div>
+            )}
 
             {/* Category Filter Pills */}
             <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
@@ -658,56 +810,70 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ onAddToCart }) => {
                         </div>
                       </div>
 
-                      {/* Quantity Selector & Add to Cart */}
+                      {/* Quantity Selector & Add to Cart (Customers Only; Guests get Login Prompt) */}
                       <div className="mt-4 pt-3 border-t border-slate-100 space-y-2.5">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="font-semibold text-slate-600">Quantity:</span>
-                          <div className="flex items-center border border-slate-200 rounded-xl bg-[#f8fbfe]">
-                            <button
-                              onClick={() => setQty(product.id, qty - 1)}
-                              disabled={qty <= 1 || isOutOfStock}
-                              className="px-2.5 py-1 text-slate-600 hover:text-[#1565c0] disabled:opacity-30 disabled:cursor-not-allowed font-bold"
-                              aria-label="Decrease quantity"
-                            >
-                              <Minus className="w-3 h-3" />
-                            </button>
-                            <span className="px-3 font-bold text-slate-800 text-xs font-mono">{qty}</span>
-                            <button
-                              onClick={() => setQty(product.id, qty + 1)}
-                              disabled={qty >= product.stock || isOutOfStock}
-                              className="px-2.5 py-1 text-slate-600 hover:text-[#1565c0] disabled:opacity-30 disabled:cursor-not-allowed font-bold"
-                              aria-label="Increase quantity"
-                            >
-                              <Plus className="w-3 h-3" />
-                            </button>
-                          </div>
-                        </div>
+                        {user ? (
+                          <>
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-semibold text-slate-600">Quantity:</span>
+                              <div className="flex items-center border border-slate-200 rounded-xl bg-[#f8fbfe]">
+                                <button
+                                  onClick={() => setQty(product.id, qty - 1)}
+                                  disabled={qty <= 1 || isOutOfStock}
+                                  className="px-2.5 py-1 text-slate-600 hover:text-[#1565c0] disabled:opacity-30 disabled:cursor-not-allowed font-bold"
+                                  aria-label="Decrease quantity"
+                                >
+                                  <Minus className="w-3 h-3" />
+                                </button>
+                                <span className="px-3 font-bold text-slate-800 text-xs font-mono">{qty}</span>
+                                <button
+                                  onClick={() => setQty(product.id, qty + 1)}
+                                  disabled={qty >= product.stock || isOutOfStock}
+                                  className="px-2.5 py-1 text-slate-600 hover:text-[#1565c0] disabled:opacity-30 disabled:cursor-not-allowed font-bold"
+                                  aria-label="Increase quantity"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </div>
 
-                        {onAddToCart && (
-                          <button
-                            data-action="add"
-                            data-id={product.id}
-                            onClick={() => handleAddToCart(product)}
-                            disabled={isOutOfStock}
-                            className={`w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition-all ${
-                              isJustAdded
-                                ? 'bg-[#2e7d32] text-white'
-                                : isOutOfStock
-                                ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                                : 'bg-[#1565c0] hover:bg-[#0b3d91] text-white hover:shadow-md'
-                            }`}
-                          >
-                            {isJustAdded ? (
-                              <>
-                                <Check className="w-4 h-4" /> Added to Cart!
-                              </>
-                            ) : (
-                              <>
-                                <ShoppingCart className="w-4 h-4" />
-                                <span>Add {qty > 1 ? `${qty} ` : ''}to Cart · {formatPeso(Number(product.selling_price) * qty)}</span>
-                              </>
+                            {onAddToCart && (
+                              <button
+                                data-action="add"
+                                data-id={product.id}
+                                onClick={() => handleAddToCart(product)}
+                                disabled={isOutOfStock}
+                                className={`w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition-all ${
+                                  isJustAdded
+                                    ? 'bg-[#2e7d32] text-white'
+                                    : isOutOfStock
+                                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                    : 'bg-[#1565c0] hover:bg-[#0b3d91] text-white hover:shadow-md'
+                                }`}
+                              >
+                                {isJustAdded ? (
+                                  <>
+                                    <Check className="w-4 h-4" /> Added to Cart!
+                                  </>
+                                ) : (
+                                  <>
+                                    <ShoppingCart className="w-4 h-4" />
+                                    <span>
+                                      Add {qty > 1 ? `${qty} ` : ''}to Cart · {formatPeso(Number(product.selling_price) * qty)}
+                                    </span>
+                                  </>
+                                )}
+                              </button>
                             )}
-                          </button>
+                          </>
+                        ) : (
+                          <Link
+                            to="/login"
+                            className="w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 bg-[#e3f2fd] hover:bg-[#bbdefb] text-[#1565c0] transition-all"
+                          >
+                            <LogIn className="w-4 h-4" />
+                            <span>Log in to order</span>
+                          </Link>
                         )}
                       </div>
                     </div>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Modal } from './Modal.js';
+import { StatusBadge } from './StatusBadge.js';
 import { formatPeso } from '../utils/currency.js';
 import {
   useCreateProduct,
@@ -57,6 +58,9 @@ export const AdminProductManager: React.FC<AdminProductManagerProps> = ({
   const [zeroStockChecked, setZeroStockChecked] = useState<boolean>(false);
   const [deleteReason, setDeleteReason] = useState<string>('');
   const [deleteActionError, setDeleteActionError] = useState<string | null>(null);
+
+  // Restore confirmation modal state
+  const [restoreTarget, setRestoreTarget] = useState<any | null>(null);
 
   // Toast notifications
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -407,13 +411,11 @@ export const AdminProductManager: React.FC<AdminProductManagerProps> = ({
                       <td>{p.reorder_pt}</td>
                       <td>
                         {isArchived ? (
-                          <span className="badge badge-neutral bg-slate-600 text-white font-medium">
-                            Archived
-                          </span>
+                          <StatusBadge variant="neutral">Archived</StatusBadge>
+                        ) : isLow ? (
+                          <StatusBadge variant="danger">Low Stock</StatusBadge>
                         ) : (
-                          <span className={`badge ${isLow ? 'badge-danger' : 'badge-success'}`}>
-                            {isLow ? 'Low Stock' : 'In Stock'}
-                          </span>
+                          <StatusBadge variant="success">In Stock</StatusBadge>
                         )}
                       </td>
                       <td>
@@ -453,7 +455,7 @@ export const AdminProductManager: React.FC<AdminProductManagerProps> = ({
                           {/* Archived products: Restore action */}
                           {isArchived && isAdmin && (
                             <button
-                              onClick={() => handleRestore(p)}
+                              onClick={() => setRestoreTarget(p)}
                               disabled={restoreProductMutation.isPending}
                               className="btn btn-outline btn-success btn-xs gap-1"
                               aria-label={`Restore ${p.name}`}
@@ -782,6 +784,46 @@ export const AdminProductManager: React.FC<AdminProductManagerProps> = ({
                 </button>
               </div>
             </form>
+      </Modal>
+      {/* RESTORE PRODUCT CONFIRMATION MODAL */}
+      <Modal
+        isOpen={Boolean(restoreTarget)}
+        onClose={() => setRestoreTarget(null)}
+        size="md"
+        title="Restore Product"
+        closeAriaLabel="Close restore modal"
+        icon={<RotateCcw className="w-5 h-5 text-emerald-600" />}
+      >
+        {restoreTarget && (
+          <div className="space-y-4">
+            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+              Are you sure you want to restore product <strong className="font-bold text-slate-800">"{restoreTarget.name}"</strong>?
+              This will re-activate the product in the active catalog and inventory management.
+            </p>
+
+            <div className="flex justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                className="btn btn-outline btn-sm text-xs"
+                onClick={() => setRestoreTarget(null)}
+                disabled={restoreProductMutation.isPending}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                onClick={async () => {
+                  await handleRestore(restoreTarget);
+                  setRestoreTarget(null);
+                }}
+                disabled={restoreProductMutation.isPending}
+              >
+                {restoreProductMutation.isPending ? 'Restoring...' : 'Confirm Restore'}
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

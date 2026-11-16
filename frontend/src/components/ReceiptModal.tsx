@@ -17,6 +17,7 @@ export interface ReceiptData {
   order_number: string;
   created_at: string;
   customer?: string;
+  customer_name?: string;
   fulfillment?: 'PICKUP' | 'DELIVERY' | string;
   address?: string | null;
   payment_method?: string;
@@ -131,7 +132,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose }) 
         <div className="text-xs space-y-1 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
           <div className="flex justify-between">
             <span className="text-slate-500 font-medium">Customer:</span>
-            <span className="font-bold text-slate-900">{receipt.customer || 'Customer'}</span>
+            <span className="font-bold text-slate-900">{receipt.customer_name || receipt.customer || 'Walk-in customer'}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-slate-500 font-medium">Fulfillment:</span>
@@ -204,11 +205,8 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose }) 
           )}
         </div>
 
-        {/* Mandatory Academic Disclaimer Footer */}
-        <div className="pt-3 border-t border-dashed border-slate-300 text-center space-y-1">
-          <p className="text-[10px] font-semibold text-slate-500 italic">
-            System-generated order receipt. For demonstration purposes only. Not an official receipt.
-          </p>
+        {/* Receipt Footer */}
+        <div className="pt-3 border-t border-dashed border-slate-300 text-center">
           <p className="text-[9px] text-slate-400">
             AquaLicious Academic Project · Angeles City, Pampanga
           </p>

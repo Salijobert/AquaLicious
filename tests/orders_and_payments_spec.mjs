@@ -2,19 +2,25 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
 import './safety_guard.mjs';
 import { chromium } from '../tools/node_modules/playwright/index.mjs';
 import { PrismaClient } from '../backend/node_modules/@prisma/client/index.js';
 import { uiTestLogin } from './helpers/testAuth.mjs';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const baseUrl = process.env.AQ_TEST_WEB || 'http://127.0.0.1:8090';
 const apiBase = `${baseUrl}/api`;
 const adminUsername = process.env.AQ_UI_USERNAME || 'test-owner';
 const adminPassword = process.env.AQ_ADMIN_PASSWORD || 'admin123';
+const dbUrl = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/aqualicious_test?schema=public';
 
 const prisma = new PrismaClient({
   datasources: {
-    db: { url: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/aqualicious_test?schema=public' }
+    db: { url: dbUrl }
   }
 });
 
@@ -29,6 +35,38 @@ function report(condition, label) {
     console.error(`FAIL ${label}`);
     failed++;
   }
+}
+
+let serverProcess = null;
+
+async function ensureServerRunning() {
+  try {
+    const res = await fetch(`${baseUrl}/api/config`);
+    if (res.ok) {
+      console.log(`[Test Setup] Test server already responding on ${baseUrl}`);
+      return;
+    }
+  } catch {}
+
+  console.log(`[Test Setup] Spawning test server on port 8090...`);
+  serverProcess = spawn('node', ['tools/start_test_server.mjs'], {
+    cwd: path.resolve(__dirname, '..'),
+    stdio: 'inherit',
+    env: { ...process.env, PORT: '8090', DATABASE_URL: dbUrl, NODE_ENV: 'test', ALLOW_LOCAL_AUTH_FALLBACK: 'true' }
+  });
+
+  const start = Date.now();
+  while (Date.now() - start < 15000) {
+    try {
+      const res = await fetch(`${baseUrl}/api/config`);
+      if (res.ok) {
+        console.log(`[Test Setup] Test server is live!`);
+        return;
+      }
+    } catch {}
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  throw new Error('Test server failed to start within 15 seconds');
 }
 
 async function apiReq(endpoint, data = null, method = 'GET', token = '', retries = 2) {
@@ -64,15 +102,7 @@ async function apiReq(endpoint, data = null, method = 'GET', token = '', retries
 console.log('=== AQUALICIOUS ORDERS, PAYMENTS & VIRTUAL SCROLLING SPECIFICATION SUITE ===\n');
 
 try {
-  // Wait for server ready
-  for (let i = 0; i < 30; i++) {
-    try {
-      const res = await fetch(`${baseUrl}/config.php`);
-      if (res.ok) break;
-    } catch {
-      await new Promise(r => setTimeout(r, 200));
-    }
-  }
+  await ensureServerRunning();
 
   // 1. Authenticate Admin
   const adminLogin = await apiReq('/auth.php', { username: adminUsername, password: adminPassword }, 'POST');
@@ -442,10 +472,12 @@ try {
   const payNowBtn = custPage.locator('button:has-text("Pay Now")').first();
   report((await payNowBtn.count()) > 0, 'Customer My Orders displays "Pay Now" button for unpaid E-Wallet order');
   await payNowBtn.click();
-  await custPage.waitForSelector('text=Demo QR — not a real payment', { timeout: 5000 });
+  await custPage.waitForSelector('.mock-qr-container svg', { timeout: 5000 });
 
+  const qrCount = await custPage.locator('.mock-qr-container svg').count();
+  report(qrCount > 0, 'Pay Now modal displays QR code cleanly without demo disclaimer banner');
   const modalText = await custPage.innerText('.aq-modal-card');
-  report(modalText.includes('Demo QR — not a real payment'), 'Pay Now modal displays Demo QR notice');
+  report(!modalText.includes('Demo QR — not a real payment'), 'Demo QR disclaimer banner successfully removed');
   report(modalText.toLowerCase().includes('upload proof of payment'), 'Pay Now modal has upload proof control');
 
   // Submit button is disabled before file selection
@@ -507,6 +539,10 @@ try {
   failed++;
 } finally {
   await prisma.$disconnect();
+  if (serverProcess) {
+    console.log('[Test Cleanup] Terminating child test server process...');
+    serverProcess.kill('SIGTERM');
+  }
 }
 
 console.log(`\n======================================================`);

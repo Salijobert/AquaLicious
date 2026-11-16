@@ -546,7 +546,7 @@ export class OrderService {
     user: { id: number; role: Role },
     params: { status?: string; limit?: number; offset?: number }
   ) {
-    const safeLimit = Math.min(Math.max(Math.trunc(Number(params.limit) || 40), 1), 100);
+    const safeLimit = Math.min(Math.max(Math.trunc(Number(params.limit) || 50), 1), 100);
     const safeOffset = Math.max(Math.trunc(Number(params.offset) || 0), 0);
     const userScope = user.role === Role.CUSTOMER ? { userId: user.id } : {};
     const whereClause = this.buildStatusFilterWhere(user, params.status);
@@ -637,12 +637,25 @@ export class OrderService {
       throw { status: 403, message: 'You do not have permission to view this receipt.' };
     }
 
-    const customerName = order.customerName || order.user?.name || 'Customer';
+    let customerName = 'Walk-in customer';
+    if (order.orderType === OrderType.WALK_IN_POS) {
+      customerName = 'Walk-in customer';
+    } else if (
+      order.customerName === 'Removed user' ||
+      order.user?.name === 'Removed user' ||
+      order.user?.username?.startsWith('removed_user_') ||
+      order.user?.username?.startsWith('deleted-')
+    ) {
+      customerName = 'Removed user';
+    } else {
+      customerName = (order.customerName || order.user?.name || '').trim() || 'Walk-in customer';
+    }
 
     return {
       receipt_number: `RCP-${order.orderNumber.replace('ORD-', '')}`,
       order_number: order.orderNumber,
       order_date: order.createdAt.toISOString(),
+      customer: customerName,
       customer_name: customerName,
       customer_username: order.user?.username,
       fulfillment: order.orderType,
@@ -668,8 +681,7 @@ export class OrderService {
       subtotal: Number(order.subtotal).toFixed(2),
       discount: Number(order.discount).toFixed(2),
       tax: Number(order.tax).toFixed(2),
-      total: Number(order.totalAmount).toFixed(2),
-      disclaimer: 'System-generated order receipt. For demonstration purposes only. Not an official receipt.'
+      total: Number(order.totalAmount).toFixed(2)
     };
   }
 
@@ -1113,6 +1125,22 @@ export class OrderService {
           }
         }
 
+        // Strict validation: reject impossible status transitions across fulfillment types
+        if (order.orderType === OrderType.PICKUP && newStatus === OrderStatus.OUT_FOR_DELIVERY) {
+          throw {
+            status: 422,
+            code: 'INVALID_STATUS_TRANSITION',
+            message: 'Pickup orders cannot be transitioned to OUT_FOR_DELIVERY'
+          };
+        }
+        if (order.orderType === OrderType.DELIVERY && newStatus === OrderStatus.READY_FOR_PICKUP) {
+          throw {
+            status: 422,
+            code: 'INVALID_STATUS_TRANSITION',
+            message: 'Delivery orders cannot be transitioned to READY_FOR_PICKUP'
+          };
+        }
+
         // Unverified E-Wallet/QR orders cannot enter fulfillment or completion
         const enteringFulfillment: OrderStatus[] = [
           OrderStatus.CONFIRMED,
@@ -1418,8 +1446,8 @@ export class OrderService {
 
         // Advance to CONFIRMED, PREPARING, READY_FOR_PICKUP, or OUT_FOR_DELIVERY under row lock
         const updated = await prisma.$transaction(async (tx) => {
-          const lockedRows = await tx.$queryRaw<Array<{ id: number; orderStatus: string; paymentStatus: string; paymentMethod: string }>>`
-            SELECT id, "orderStatus"::text AS "orderStatus", "paymentStatus"::text AS "paymentStatus", "paymentMethod"::text AS "paymentMethod"
+          const lockedRows = await tx.$queryRaw<Array<{ id: number; orderStatus: string; paymentStatus: string; paymentMethod: string; orderType: string }>>`
+            SELECT id, "orderStatus"::text AS "orderStatus", "paymentStatus"::text AS "paymentStatus", "paymentMethod"::text AS "paymentMethod", "orderType"::text AS "orderType"
             FROM sales_orders
             WHERE id = ${id}
             FOR UPDATE
@@ -1434,6 +1462,15 @@ export class OrderService {
           if (locked.orderStatus === OrderStatus.COMPLETED) {
             throw { status: 409, message: 'Completed orders cannot change status' };
           }
+          // Strict validation: reject impossible status transitions across fulfillment types
+          const effectiveOrderType = locked.orderType || order.orderType;
+          if (effectiveOrderType === OrderType.PICKUP && newStatus === OrderStatus.OUT_FOR_DELIVERY) {
+            throw { status: 422, code: 'INVALID_STATUS_TRANSITION', message: 'Pickup orders cannot be transitioned to OUT_FOR_DELIVERY' };
+          }
+          if (effectiveOrderType === OrderType.DELIVERY && newStatus === OrderStatus.READY_FOR_PICKUP) {
+            throw { status: 422, code: 'INVALID_STATUS_TRANSITION', message: 'Delivery orders cannot be transitioned to READY_FOR_PICKUP' };
+          }
+
           const lockedIsEWallet =
             locked.paymentMethod === PaymentMethod.E_WALLET ||
             locked.paymentMethod === PaymentMethod.GCASH_QR ||

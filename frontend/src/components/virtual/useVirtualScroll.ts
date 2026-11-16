@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 
-export const INITIAL_LOAD = 40;
-export const CHUNK_SIZE = 40;
-export const SCROLL_LOAD_AHEAD_PX = 250;
+export const INITIAL_LOAD = 50;
+export const CHUNK_SIZE = 50;
+export const OVERSCAN_ROWS = 50;
+export const SCROLL_LOAD_AHEAD_PX = 300;
 
 export interface UseVirtualScrollOptions {
   itemCount: number;
@@ -39,9 +40,10 @@ export function useVirtualScroll({
   itemCount,
   itemHeight = 52,
   containerRef,
-  velocityThreshold = 0.6,
-  fastScrollCooldownMs = 160
+  velocityThreshold = 0.8,
+  fastScrollCooldownMs = 150
 }: UseVirtualScrollOptions): UseVirtualScrollReturn {
+  // Lists with <= 50 items render completely at once
   const [visibleCount, setVisibleCount] = useState<number>(() =>
     itemCount <= INITIAL_LOAD ? itemCount : INITIAL_LOAD
   );
@@ -55,15 +57,31 @@ export function useVirtualScroll({
   const lastScrollTime = useRef(performance.now());
   const cooldownTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // If item count changes (e.g. search filter applied or data refreshed), reset or clamp
+  // If item count changes (e.g. search filter applied or data refreshed), reset or preserve
   useEffect(() => {
     if (itemCount !== prevItemCountRef.current) {
+      const prevCount = prevItemCountRef.current;
       prevItemCountRef.current = itemCount;
       if (itemCount <= INITIAL_LOAD) {
         setVisibleCount(itemCount);
-      } else {
+      } else if (prevCount === 0) {
+        // Initial load for a list > 50
         setVisibleCount(INITIAL_LOAD);
+      } else if (itemCount < prevCount) {
+        // Filter or search reduced the dataset
+        setVisibleCount(INITIAL_LOAD);
+      } else {
+        // Items were appended (e.g. paginated fetch or live additions)
+        // Keep already loaded rows visible without resetting to 50
+        setVisibleCount((prev) => {
+          if (prev >= prevCount) {
+            return Math.min(itemCount, prev + (itemCount - prevCount));
+          }
+          return Math.min(itemCount, Math.max(prev, INITIAL_LOAD));
+        });
       }
+      setIsScrollingFast(false);
+      setIsScrolling(false);
     }
   }, [itemCount]);
 
@@ -73,10 +91,13 @@ export function useVirtualScroll({
     setVisibleCount((prev) => Math.min(itemCount, prev + CHUNK_SIZE));
   }, [itemCount]);
 
-  // Handle scroll listeners ONLY when list has > 40 items AND hasMore is true
+  // Handle scroll listeners ONLY when list has > 50 items AND hasMore is true
   useEffect(() => {
-    // If list has 40 items or fewer, or all chunks are already loaded, DO NOT attach any listeners
+    // If list has 50 items or fewer, or all chunks are already loaded, DO NOT attach any listeners
     if (itemCount <= INITIAL_LOAD || !hasMore) {
+      // Ensure states are cleanly settled if hasMore just transitioned to false
+      setIsScrollingFast(false);
+      setIsScrolling(false);
       return;
     }
 
@@ -108,7 +129,7 @@ export function useVirtualScroll({
       setScrollTop(currentScrollTop);
       setIsScrolling(true);
 
-      if (velocity > velocityThreshold || deltaY > itemHeight * 5) {
+      if (velocity > velocityThreshold) {
         setIsScrollingFast(true);
       }
 
@@ -120,14 +141,14 @@ export function useVirtualScroll({
         setIsScrolling(false);
       }, fastScrollCooldownMs);
 
-      // Check if user scrolled near the end of the loaded list (within 200-300px)
+      // Check if user scrolled near the end of the loaded list (within 300px load-ahead)
       const distanceFromBottom = scrollHeight - (currentScrollTop + clientHeight);
       if (distanceFromBottom <= SCROLL_LOAD_AHEAD_PX && !isTriggeringRef.current) {
         isTriggeringRef.current = true;
         setVisibleCount((prev) => Math.min(itemCount, prev + CHUNK_SIZE));
         setTimeout(() => {
           isTriggeringRef.current = false;
-        }, 100);
+        }, 80);
       }
     };
 

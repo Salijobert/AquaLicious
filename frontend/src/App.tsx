@@ -1,5 +1,6 @@
 import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom';
+import { createPortal } from 'react-dom';
 import { useAuth } from './auth/AuthContext.js';
 import { Navbar } from './components/Navbar.js';
 import { Modal } from './components/Modal.js';
@@ -91,8 +92,13 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const onConsentReq = () => setIsConsentModalOpen(true);
+    const onOpenMap = () => setIsMapModalOpen(true);
     window.addEventListener('aqualicious:consent-required', onConsentReq);
-    return () => window.removeEventListener('aqualicious:consent-required', onConsentReq);
+    window.addEventListener('aqualicious:open-delivery-map', onOpenMap);
+    return () => {
+      window.removeEventListener('aqualicious:consent-required', onConsentReq);
+      window.removeEventListener('aqualicious:open-delivery-map', onOpenMap);
+    };
   }, []);
 
   // Detach splash screen after initial mount
@@ -103,8 +109,29 @@ export const App: React.FC = () => {
     return () => clearTimeout(timer);
   }, []);
 
+  // Lock body scroll when cart drawer is open to prevent background scrolling & layout shifts
+  useEffect(() => {
+    if (!isCartOpen) return;
+    const originalOverflow = document.body.style.overflow;
+    const originalPaddingRight = document.body.style.paddingRight;
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+    document.body.style.overflow = 'hidden';
+    if (scrollbarWidth > 0) {
+      document.body.style.paddingRight = `${scrollbarWidth}px`;
+    }
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      document.body.style.paddingRight = originalPaddingRight;
+    };
+  }, [isCartOpen]);
+
   // Capacitor and Android hardware back button handling
   useEffect(() => {
+    const isAuthRoute = (path: string) => {
+      const p = path.toLowerCase();
+      return p === '/login' || p === '/register' || p === '/forgot-password' || p === '/reset-password';
+    };
+
     const handleBackButton = (e: Event) => {
       if (isCartOpen) {
         e.preventDefault();
@@ -112,6 +139,9 @@ export const App: React.FC = () => {
       } else if (isSidebarOpen) {
         e.preventDefault();
         setIsSidebarOpen(false);
+      } else if (isAuthRoute(location.pathname)) {
+        e.preventDefault();
+        navigate('/');
       }
     };
 
@@ -125,7 +155,9 @@ export const App: React.FC = () => {
           setIsCartOpen(false);
         } else if (isSidebarOpen) {
           setIsSidebarOpen(false);
-        } else if (canGoBack) {
+        } else if (isAuthRoute(location.pathname)) {
+          navigate('/');
+        } else if (canGoBack && location.pathname !== '/') {
           window.history.back();
         } else {
           capApp.exitApp?.();
@@ -141,7 +173,7 @@ export const App: React.FC = () => {
         capHandle.remove();
       }
     };
-  }, [isCartOpen, isSidebarOpen]);
+  }, [isCartOpen, isSidebarOpen, location.pathname, navigate]);
 
   const addToCart = (product: any, quantity: number = 1) => {
     const qtyToAdd = Math.max(1, quantity || 1);
@@ -385,14 +417,14 @@ export const App: React.FC = () => {
       </div>
 
       {/* Cart Drawer for Mobile and Web Customers */}
-      {isCartOpen && (
-        <div className="fixed inset-0 z-50 overflow-hidden flex justify-end">
+      {user && isCartOpen && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-[1000] overflow-hidden flex justify-end">
           <div
-            className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs transition-opacity"
+            className="fixed inset-0 aq-drawer-backdrop"
             onClick={() => setIsCartOpen(false)}
           />
           <div
-            className="relative w-full max-w-md bg-white shadow-2xl flex flex-col h-full z-10 animate-in slide-in-from-right duration-200"
+            className="relative w-full max-w-md bg-white shadow-2xl flex flex-col h-full z-[1001] animate-in slide-in-from-right duration-200"
             style={{
               paddingTop: 'var(--safe-top)',
               paddingBottom: 'var(--safe-bottom)'
@@ -622,7 +654,8 @@ export const App: React.FC = () => {
               </form>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Mandatory Terms & Data Privacy Act Consent Modal */}

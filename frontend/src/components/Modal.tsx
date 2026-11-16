@@ -1,8 +1,36 @@
 import React, { useEffect, useId } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 export type ModalSize = 'sm' | 'md' | 'lg' | 'xl' | '2xl';
 export type ModalHeaderVariant = 'default' | 'subtle' | 'hero' | 'danger';
+
+let activeModalCount = 0;
+let previousOverflow = '';
+let previousPaddingRight = '';
+
+const lockBodyScroll = () => {
+  if (typeof document === 'undefined') return;
+  if (activeModalCount === 0) {
+    previousOverflow = document.body.style.overflow;
+    previousPaddingRight = document.body.style.paddingRight;
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+    document.body.style.overflow = 'hidden';
+    if (scrollbarWidth > 0) {
+      document.body.style.paddingRight = `${scrollbarWidth}px`;
+    }
+  }
+  activeModalCount += 1;
+};
+
+const unlockBodyScroll = () => {
+  if (typeof document === 'undefined') return;
+  activeModalCount = Math.max(0, activeModalCount - 1);
+  if (activeModalCount === 0) {
+    document.body.style.overflow = previousOverflow;
+    document.body.style.paddingRight = previousPaddingRight;
+  }
+};
 
 const SIZE_CLASSES: Record<ModalSize, string> = {
   sm: 'max-w-sm',
@@ -51,7 +79,7 @@ export const Modal: React.FC<ModalProps> = ({
   disableClose = false,
   closeOnBackdrop = true,
   closeOnEsc = true,
-  zIndexClass = 'z-50',
+  zIndexClass = 'z-[1100]',
   bodyClassName = '',
   footer,
   footerClassName = '',
@@ -65,6 +93,14 @@ export const Modal: React.FC<ModalProps> = ({
   const titleId = ariaLabelledBy || generatedTitleId;
 
   useEffect(() => {
+    if (!isOpen) return;
+    lockBodyScroll();
+    return () => {
+      unlockBodyScroll();
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
     if (!isOpen || !closeOnEsc || disableClose || !onClose) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -76,6 +112,7 @@ export const Modal: React.FC<ModalProps> = ({
   }, [isOpen, closeOnEsc, disableClose, onClose]);
 
   if (!isOpen) return null;
+  if (typeof document === 'undefined') return null;
 
   const isHero = headerVariant === 'hero';
   const isSubtle = headerVariant === 'subtle';
@@ -99,7 +136,7 @@ export const Modal: React.FC<ModalProps> = ({
     ? 'aq-modal-close bg-white/20 hover:bg-white/30 text-white'
     : 'aq-modal-close bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900';
 
-  return (
+  const modalElement = (
     <div
       ref={backdropRef}
       tabIndex={-1}
@@ -178,4 +215,6 @@ export const Modal: React.FC<ModalProps> = ({
       </div>
     </div>
   );
+
+  return createPortal(modalElement, document.body);
 };

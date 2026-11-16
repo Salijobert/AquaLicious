@@ -32,5 +32,7 @@ tools/keys/*.pem
 tools/keys/*.key
 tools/keys/*.private
 .temp_ota/
+backups/
+rollback_bundle_*/
 
 .vercel

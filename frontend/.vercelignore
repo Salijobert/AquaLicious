@@ -1,2 +1,10 @@
 node_modules/
 *.log
+.env
+.env.*
+!**/.env.example
+*service-account*.json
+*.pem
+*.key
+backups/
+rollback_bundle_*/

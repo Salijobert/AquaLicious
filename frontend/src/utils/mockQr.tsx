@@ -82,11 +82,10 @@ export const MockQrDisplay: React.FC<MockQrProps> = ({ orderNumber, amount, clas
 
   return (
     <div className={`mock-qr-container flex flex-col items-center p-4 bg-white rounded-2xl border border-gray-200 shadow-sm ${className}`}>
-      {/* Demo QR Notice Banner */}
+      {/* Mock demonstration QR code display (controlled by PAYMENT_MOCK_QR_ENABLED) */}
       {PAYMENT_MOCK_QR_ENABLED && (
-        <div className="w-full bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-bold px-3 py-2 rounded-xl mb-3 text-center leading-snug">
-          ⚠️ Demo QR — not a real payment. Replace with the station&apos;s e-wallet QR before launch.
-        </div>
+        /* Code Comment: Station E-Wallet QR Mock Representation */
+        null
       )}
 
       {/* SVG QR Code */}

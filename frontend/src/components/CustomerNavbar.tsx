@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../auth/AuthContext.js';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
@@ -47,6 +48,21 @@ export const CustomerNavbar: React.FC<CustomerNavbarProps> = ({ cartCount = 0, o
   const isCustomer = user?.role === 'Customer';
   const isAdmin = user?.role === 'Administrator';
   const path = location.pathname.toLowerCase();
+
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+    const origOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = origOverflow;
+    };
+  }, [isMobileMenuOpen]);
+
+  useEffect(() => {
+    const handleOpenDiag = () => setIsDiagnosticsOpen(true);
+    window.addEventListener('aqualicious:open-diagnostics', handleOpenDiag);
+    return () => window.removeEventListener('aqualicious:open-diagnostics', handleOpenDiag);
+  }, []);
   const isCapacitor = isCapacitorApp();
 
   const handleManualUpdateCheck = async () => {
@@ -238,18 +254,23 @@ export const CustomerNavbar: React.FC<CustomerNavbarProps> = ({ cartCount = 0, o
         </div>
       </nav>
 
-      {/* Mobile Drawer Menu */}
-      {isMobileMenuOpen && (
-        <div
-          className="fixed inset-x-0 z-40 bg-white border-b border-[#e3f2fd] shadow-xl md:hidden px-6 py-5 space-y-4 animate-in slide-in-from-top-2 duration-150"
-          style={{
-            top: 'calc(4rem + var(--safe-top))',
-            paddingBottom: 'max(var(--safe-bottom), 1.25rem)',
-            maxHeight: 'calc(100dvh - 4rem - var(--safe-top))',
-            overflowY: 'auto'
-          }}
-        >
-          <div className="flex flex-col gap-3 text-sm font-semibold text-slate-700 border-b border-slate-100 pb-4">
+      {/* Mobile Drawer Menu Portaled with Dimmed & Blurred Backdrop */}
+      {isMobileMenuOpen && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-[1000] md:hidden">
+          <div
+            className="fixed inset-0 aq-drawer-backdrop"
+            onClick={() => setIsMobileMenuOpen(false)}
+          />
+          <div
+            className="fixed inset-x-0 z-[1001] bg-white border-b border-[#e3f2fd] shadow-xl px-6 py-5 space-y-4 animate-in slide-in-from-top-2 duration-150"
+            style={{
+              top: 'calc(4rem + var(--safe-top))',
+              paddingBottom: 'max(var(--safe-bottom), 1.25rem)',
+              maxHeight: 'calc(100dvh - 4rem - var(--safe-top))',
+              overflowY: 'auto'
+            }}
+          >
+            <div className="flex flex-col gap-3 text-sm font-semibold text-slate-700 border-b border-slate-100 pb-4">
             <Link
               to="/"
               onClick={handleProductsClick}
@@ -380,7 +401,9 @@ export const CustomerNavbar: React.FC<CustomerNavbarProps> = ({ cartCount = 0, o
             )}
           </div>
         </div>
-      )}
+      </div>,
+      document.body
+    )}
 
       {/* Reusable Modals */}
       <AboutStationModal isOpen={isAboutOpen} onClose={() => setIsAboutOpen(false)} />

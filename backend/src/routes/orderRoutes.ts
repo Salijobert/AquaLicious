@@ -135,7 +135,7 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
     if (req.query.paginated === '1' || req.query.paginated === 'true') {
       const paginated = await OrderService.listOrdersPaginated(req.user!, {
         status: statusFilter,
-        limit: Number(limit) || 40,
+        limit: Number(limit) || 50,
         offset: Number(req.query.offset) || 0
       });
       return res.json(paginated);

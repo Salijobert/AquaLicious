@@ -1,5 +1,5 @@
 import React from 'react';
-import { useVirtualScroll } from './useVirtualScroll.js';
+import { useVirtualScroll, INITIAL_LOAD } from './useVirtualScroll.js';
 
 export interface VirtualTableBodyProps<T> {
   items: T[] | undefined | null;
@@ -7,12 +7,25 @@ export interface VirtualTableBodyProps<T> {
   rowHeight: number;
   colSpan: number;
   renderRow: (item: T, index: number) => React.ReactNode;
-  renderSkeletonRow: (index: number) => React.ReactNode;
+  renderSkeletonRow?: (index: number) => React.ReactNode;
   emptyRow?: React.ReactNode;
   overscan?: number;
   velocityThreshold?: number;
   fastScrollCooldownMs?: number;
 }
+
+interface MemoizedTableRowProps<T> {
+  item: T;
+  index: number;
+  renderRow: (item: T, index: number) => React.ReactNode;
+}
+
+const MemoizedTableRow = React.memo(
+  function MemoizedTableRow<T>({ item, index, renderRow }: MemoizedTableRowProps<T>) {
+    return <>{renderRow(item, index)}</>;
+  },
+  (prev, next) => prev.item === next.item && prev.index === next.index
+) as <T>(props: MemoizedTableRowProps<T>) => React.ReactElement;
 
 export function VirtualTableBody<T>({
   items,
@@ -20,10 +33,9 @@ export function VirtualTableBody<T>({
   rowHeight,
   colSpan,
   renderRow,
-  renderSkeletonRow,
   emptyRow,
-  velocityThreshold = 0.6,
-  fastScrollCooldownMs = 160
+  velocityThreshold = 0.8,
+  fastScrollCooldownMs = 150
 }: VirtualTableBodyProps<T>): React.ReactElement {
   const safeItems = items || [];
   const itemCount = safeItems.length;
@@ -79,20 +91,18 @@ export function VirtualTableBody<T>({
         const item = safeItems[vItem.index];
         if (!item) return null;
 
-        if (isScrollingFast) {
-          return (
-            <React.Fragment key={`skel-${vItem.index}`}>
-              {renderSkeletonRow(vItem.index)}
-            </React.Fragment>
-          );
-        }
-
-        const stableKey = (item as any)?.id !== undefined ? (item as any).id : vItem.index;
+        const stableKey =
+          (item as any)?.id !== undefined
+            ? (item as any).id
+            : (item as any)?.date || vItem.index;
 
         return (
-          <React.Fragment key={stableKey}>
-            {renderRow(item, vItem.index)}
-          </React.Fragment>
+          <MemoizedTableRow
+            key={stableKey}
+            item={item}
+            index={vItem.index}
+            renderRow={renderRow}
+          />
         );
       })}
 
@@ -106,9 +116,9 @@ export function VirtualTableBody<T>({
         </tr>
       )}
 
-      {/* Accessible fallback & counter for lazy lists above threshold */}
-      {itemCount > 40 && (
-        <tr className="bg-gray-50/70 border-t border-gray-200">
+      {/* Accessible fallback & quiet end-of-list counter for lists > 50 items */}
+      {itemCount > INITIAL_LOAD && (
+        <tr className="bg-gray-50/70 border-t border-gray-200" data-testid="virtual-table-footer">
           <td colSpan={colSpan} className="text-center py-3 text-xs text-gray-500 font-medium">
             Showing <span className="font-bold text-gray-700">{visibleCount}</span> of <span className="font-bold text-gray-700">{itemCount}</span> records
             {hasMore && (

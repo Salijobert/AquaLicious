@@ -32,6 +32,8 @@ import { VirtualCardList, OrderCardSkeleton } from '../components/virtual/index.
 import { AdminPageHeader } from '../components/AdminPageHeader.js';
 import { MockQrDisplay } from '../utils/mockQr.js';
 import { formatPeso } from '../utils/currency.js';
+import { StatusBadge } from '../components/StatusBadge.js';
+import { OrderStatusTracker } from '../components/OrderStatusTracker.js';
 import {
   formatPaymentMethod,
   formatPaymentStatus,
@@ -70,11 +72,12 @@ export const OrdersPage: React.FC = () => {
   const {
     data: paginatedData,
     error,
+    isFetchNextPageError,
     isLoading,
     hasNextPage,
     fetchNextPage,
     isFetchingNextPage
-  } = useOrdersInfinite({ status: apiStatusFilter, limit: 40 });
+  } = useOrdersInfinite({ status: apiStatusFilter, limit: 50 });
   const { data: pendingSummary } = usePendingOrdersSummary(1, isAdmin);
   const patchOrderMutation = usePatchOrder();
   const queryClient = useQueryClient();
@@ -91,6 +94,7 @@ export const OrdersPage: React.FC = () => {
       nextParams.delete('orderId');
     }
     setSearchParams(nextParams, { replace: true });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const pendingOrdersCount = isAdmin
@@ -101,11 +105,11 @@ export const OrdersPage: React.FC = () => {
 
   useEffect(() => {
     const sentinel = loadMoreRef.current;
-    if (!sentinel || !hasNextPage || isFetchingNextPage) return;
+    if (!sentinel || !hasNextPage || isFetchingNextPage || isFetchNextPageError) return;
     if (typeof IntersectionObserver === 'undefined') return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage) {
+        if (entries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage && !isFetchNextPageError) {
           fetchNextPage();
         }
       },
@@ -113,7 +117,7 @@ export const OrdersPage: React.FC = () => {
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  }, [hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage]);
 
   useEffect(() => {
     if (!highlightedOrderId || !Array.isArray(displayedOrders) || displayedOrders.length === 0) {
@@ -184,6 +188,14 @@ export const OrdersPage: React.FC = () => {
       setIsLoadingReceipt(false);
     }
   };
+
+  useEffect(() => {
+    const onOpenOrderMap = (e: any) => {
+      setSelectedMapOrder(e.detail || { order_number: 'ORD-MAP-TEST', delivery_lat: 15.1449, delivery_lng: 120.5927, address: 'Angeles City, Pampanga' });
+    };
+    window.addEventListener('aqualicious:open-order-map', onOpenOrderMap);
+    return () => window.removeEventListener('aqualicious:open-order-map', onOpenOrderMap);
+  }, []);
 
   // Clean up blob URL on unmount or when proofBlobUrl changes
   useEffect(() => {
@@ -635,6 +647,7 @@ export const OrdersPage: React.FC = () => {
           items={displayedOrders}
           itemHeight={240}
           className="space-y-4"
+          showFooter={false}
           emptyContent={
             <div className="card text-center py-16 text-gray-500">
               <p className="text-sm font-semibold">
@@ -751,37 +764,37 @@ export const OrdersPage: React.FC = () => {
 
                       {/* Payment Status Badges */}
                       {rawPaymentStatus === 'COMPLETED' ? (
-                        <span className="badge badge-success text-xs font-bold text-white flex items-center gap-1 px-2.5 py-1">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Payment: Completed
-                        </span>
+                        <StatusBadge variant="success" icon={<CheckCircle2 className="w-3.5 h-3.5" />}>
+                          Payment: Completed
+                        </StatusBadge>
                       ) : isCash ? (
-                        <span className="badge badge-warning text-xs font-bold px-2.5 py-1">
+                        <StatusBadge variant="warning">
                           {formatCashPaymentLabel(order.fulfillment)}
-                        </span>
+                        </StatusBadge>
                       ) : rawPaymentStatus === 'SUBMITTED' ? (
-                        <span className="badge badge-info text-xs font-bold text-white flex items-center gap-1 px-2.5 py-1">
+                        <StatusBadge variant="info">
                           Payment: Proof Submitted – For Verification
-                        </span>
+                        </StatusBadge>
                       ) : rawPaymentStatus === 'VERIFIED' ? (
-                        <span className="badge badge-success text-xs font-bold text-white flex items-center gap-1 px-2.5 py-1">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Payment: Verified
-                        </span>
+                        <StatusBadge variant="success" icon={<CheckCircle2 className="w-3.5 h-3.5" />}>
+                          Payment: Verified
+                        </StatusBadge>
                       ) : rawPaymentStatus === 'REJECTED' ? (
-                        <span className="badge badge-error text-xs font-bold text-white flex items-center gap-1 px-2.5 py-1">
-                          <XCircle className="w-3.5 h-3.5" /> Payment: Rejected
-                        </span>
+                        <StatusBadge variant="danger" icon={<XCircle className="w-3.5 h-3.5" />}>
+                          Payment: Rejected
+                        </StatusBadge>
                       ) : rawPaymentStatus === 'REFUND_REQUIRED' ? (
-                        <span className="badge badge-error text-xs font-bold text-white px-2.5 py-1">
+                        <StatusBadge variant="danger">
                           Payment: Refund Required
-                        </span>
+                        </StatusBadge>
                       ) : rawPaymentStatus === 'REFUNDED' ? (
-                        <span className="badge badge-neutral text-xs font-bold px-2.5 py-1">
+                        <StatusBadge variant="neutral">
                           Payment: Refunded
-                        </span>
+                        </StatusBadge>
                       ) : (
-                        <span className="badge badge-warning text-xs font-bold px-2.5 py-1">
+                        <StatusBadge variant="warning">
                           Payment: Awaiting Payment
-                        </span>
+                        </StatusBadge>
                       )}
                     </div>
 
@@ -834,6 +847,13 @@ export const OrdersPage: React.FC = () => {
                         )}
                       </div>
                     )}
+
+                    {/* Customer Real-Time Order Tracking Progress */}
+                    {!isAdmin && rawOrderStatus !== 'CANCELLED' && (
+                      <div className="pt-2">
+                        <OrderStatusTracker order={order} />
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -842,21 +862,21 @@ export const OrdersPage: React.FC = () => {
                   <div className="w-full">
                     <div className="text-xs text-gray-500 font-medium text-right mb-1">Order Amount</div>
                     <div className="flex items-center justify-between md:justify-end gap-3 flex-wrap">
-                      <span
-                        className={`badge font-bold px-3 py-1.5 text-xs ${
+                      <StatusBadge
+                        variant={
                           rawOrderStatus === 'COMPLETED'
-                            ? 'badge-success'
+                            ? 'success'
                             : rawOrderStatus === 'CANCELLED'
-                            ? 'badge-danger'
+                            ? 'danger'
                             : rawOrderStatus === 'READY_FOR_PICKUP' || rawOrderStatus === 'OUT_FOR_DELIVERY'
-                            ? 'badge-info'
+                            ? 'info'
                             : rawOrderStatus === 'PREPARING'
-                            ? 'badge-primary'
-                            : 'badge-warning'
-                        }`}
+                            ? 'primary'
+                            : 'warning'
+                        }
                       >
                         {formatOrderStatus(rawOrderStatus)}
-                      </span>
+                      </StatusBadge>
                       <span className="text-2xl font-black text-[#0b3d91] whitespace-nowrap">
                         {formatPeso(order.total)}
                       </span>
@@ -992,17 +1012,41 @@ export const OrdersPage: React.FC = () => {
         />
         )}
 
-        {/* Lazy-load 40-row pagination footer & intersection sentinel */}
+        {/* Lazy-load 50-row pagination footer & intersection sentinel */}
         {hasNextPage && (
           <div ref={loadMoreRef} className="flex flex-col items-center justify-center py-4 gap-2">
-            <button
-              type="button"
-              onClick={() => fetchNextPage()}
-              disabled={isFetchingNextPage}
-              className="btn btn-outline btn-sm min-h-[42px] px-6 rounded-xl font-bold text-xs border-slate-300"
-            >
-              {isFetchingNextPage ? 'Loading more orders...' : 'Load More Orders'}
-            </button>
+            {isFetchingNextPage ? (
+              <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 py-2">
+                <span className="loading loading-spinner loading-xs text-[#1565c0]"></span>
+                <span>Loading more orders...</span>
+              </div>
+            ) : (isFetchNextPageError || error) ? (
+              <div className="flex items-center gap-3 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs">
+                <span>Failed to load more orders.</span>
+                <button
+                  type="button"
+                  onClick={() => fetchNextPage()}
+                  className="btn btn-xs btn-outline btn-error font-bold"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => fetchNextPage()}
+                disabled={isFetchingNextPage}
+                className="btn btn-outline btn-sm min-h-[42px] px-6 rounded-xl font-bold text-xs border-slate-300"
+              >
+                Load More Orders
+              </button>
+            )}
+          </div>
+        )}
+
+        {!hasNextPage && (orders?.length || 0) > 50 && (
+          <div className="text-center py-4 text-xs text-gray-500 font-medium">
+            Showing all <span className="font-bold text-gray-700">{orders?.length}</span> orders
           </div>
         )}
       </div>
@@ -1411,6 +1455,25 @@ export const OrdersPage: React.FC = () => {
           />
         </Suspense>
       )}
+
+      {/* Payment Proof Full-Size Zoom Modal */}
+      <Modal
+        isOpen={Boolean(isZoomed && (proofBlobUrl || viewPaymentProof?.proof_base64))}
+        onClose={() => setIsZoomed(false)}
+        size="2xl"
+        zIndexClass="z-[1100]"
+        title="Payment Proof – Full Size"
+        closeAriaLabel="Close zoomed image"
+        bodyClassName="p-2 sm:p-4 flex items-center justify-center bg-slate-950/20"
+      >
+        <div className="w-full flex items-center justify-center overflow-auto max-h-[75vh]">
+          <img
+            src={proofBlobUrl || viewPaymentProof?.proof_base64}
+            alt="Customer payment proof full view"
+            className="max-h-[72vh] w-auto object-contain rounded-lg shadow-lg border border-slate-200"
+          />
+        </div>
+      </Modal>
 
       {/* Admin Order Map Inspection Modal */}
       {selectedMapOrder && (
