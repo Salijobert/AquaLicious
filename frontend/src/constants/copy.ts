@@ -11,6 +11,10 @@ export const COPY = {
   BRAND_TAGLINE: 'Pure · Safe · Refreshed',
   PORTAL_TITLE: 'AquaLicious - Pure Mineral Water & Station Refills',
 
+  // Privacy & Governance Contact
+  // [NEEDS OWNER CONFIRMATION] - Data Protection Officer contact email
+  DPO_CONTACT_EMAIL: null as string | null,
+
   // Login Page Copy
   LOGIN: {
     CARD_TITLE: 'AquaLicious Login',

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { AuthProfile, loginUser, registerCustomer, logoutUser, onFirebaseIdTokenChanged } from './firebase.js';
 import { resolver } from '../api/multiServerResolver.js';
+import { TERMS_VERSION } from '../constants/terms.js';
 
 interface AuthContextType {
   user: AuthProfile | null;
@@ -82,7 +83,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     u: string,
     p: string,
     consent: boolean = true,
-    termsVersion: string = '2026-10-27.2',
+    termsVersion: string = TERMS_VERSION,
     email?: string
   ): Promise<AuthProfile> => {
     setIsLoading(true);

@@ -81,7 +81,8 @@ body {
 }
 
 .sidebar.drawer-open {
-  z-index: 1050;
+  z-index: 1050 !important;
+  background-color: #ffffff !important;
 }
 
 .sidebar-brand {

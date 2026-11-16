@@ -9,6 +9,7 @@ import {
   onIdTokenChanged
 } from 'firebase/auth';
 import { resolver } from '../api/multiServerResolver.js';
+import { TERMS_VERSION } from '../constants/terms.js';
 
 // Firebase Web SDK Configuration
 // Can be overridden via window.FIREBASE_CONFIG or .env
@@ -177,7 +178,7 @@ export async function registerCustomer(
   username: string,
   password: string,
   consent: boolean = true,
-  termsVersion: string = '2026-10-27.2',
+  termsVersion: string = TERMS_VERSION,
   email?: string
 ): Promise<{ token: string; user: AuthProfile }> {
   let createdFirebaseUser: any = null;
@@ -194,10 +195,45 @@ export async function registerCustomer(
         try {
           const cred = await signInWithEmailAndPassword(auth, targetEmail, password);
           createdFirebaseUser = cred.user;
-        } catch {
-          // If password doesn't match existing account, throw friendly error
-          throw new Error('An account with this email address already exists. Please log in instead.');
+        } catch (signInErr: any) {
+          if (signInErr?.code === 'auth/user-disabled') {
+            const err: any = new Error('This user account has been disabled. Please contact the station.');
+            err.code = 'ACCOUNT_DISABLED';
+            err.status = 403;
+            throw err;
+          }
+          if (signInErr?.code === 'auth/too-many-requests') {
+            const err: any = new Error('Too many attempts. Please wait a few minutes and try again.');
+            err.code = 'TOO_MANY_REQUESTS';
+            err.status = 429;
+            throw err;
+          }
+          // If password doesn't match existing account, show friendly prompt
+          const err: any = new Error('This email may already be registered. Try signing in, or reset your password.');
+          err.code = 'EMAIL_ALREADY_EXISTS';
+          err.status = 409;
+          throw err;
         }
+      } else if (fbErr?.code === 'auth/too-many-requests') {
+        const err: any = new Error('Too many attempts. Please wait a few minutes and try again.');
+        err.code = 'TOO_MANY_REQUESTS';
+        err.status = 429;
+        throw err;
+      } else if (fbErr?.code === 'auth/weak-password') {
+        const err: any = new Error('Password must be at least 6 characters.');
+        err.code = 'WEAK_PASSWORD';
+        err.status = 422;
+        throw err;
+      } else if (fbErr?.code === 'auth/invalid-email') {
+        const err: any = new Error('A valid email address is required.');
+        err.code = 'INVALID_EMAIL';
+        err.status = 422;
+        throw err;
+      } else if (fbErr?.code === 'auth/network-request-failed') {
+        const err: any = new Error("The server isn't reachable right now. Please try again in a moment.");
+        err.code = 'SERVER_UNREACHABLE';
+        err.status = 503;
+        throw err;
       } else {
         console.warn('Firebase user creation notice:', fbErr?.message || fbErr);
       }

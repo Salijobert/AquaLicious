@@ -76,6 +76,13 @@ function resolveBuildId(): string {
   }
 }
 
+export const CURRENT_TERMS_VERSION = '2026-11-16.4';
+export const PREVIOUS_TERMS_VERSION = '2026-11-16.3';
+export const TERMS_VERSION_ALLOWLIST: readonly string[] = [
+  CURRENT_TERMS_VERSION,
+  PREVIOUS_TERMS_VERSION
+];
+
 export const config = {
   port: parseInt(process.env.PORT || '8088', 10),
   failoverPort: parseInt(process.env.FAILOVER_PORT || '8089', 10),
@@ -108,6 +115,8 @@ export const config = {
   unpaidOrderTtlMinutes: Math.max(1, parseInt(process.env.UNPAID_ORDER_TTL_MINUTES || '120', 10) || 120),
   maxUnpaidPendingOrders: Math.max(1, parseInt(process.env.MAX_UNPAID_PENDING_ORDERS || '3', 10) || 3),
   deliveryRequireCoords: process.env.DELIVERY_REQUIRE_COORDS === 'true',
+  termsVersion: CURRENT_TERMS_VERSION,
+  termsVersionAllowlist: TERMS_VERSION_ALLOWLIST,
   buildId: resolveBuildId()
 };
 

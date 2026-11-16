@@ -1,8 +1,15 @@
+import { COPY } from './copy.js';
+
 /**
  * AquaLicious Terms and Conditions & Data Privacy Policy
  * Compliant with Republic Act No. 10173 (Philippine Data Privacy Act of 2012)
  */
-export const TERMS_VERSION = "2026-11-16.3";
+export const TERMS_VERSION = "2026-11-16.4";
+export const PREVIOUS_TERMS_VERSION = "2026-11-16.3";
+export const TERMS_VERSION_ALLOWLIST: readonly string[] = [
+  TERMS_VERSION,
+  PREVIOUS_TERMS_VERSION
+];
 
 export interface TermsSection {
   title: string;
@@ -17,7 +24,7 @@ export const TERMS_CONTENT: {
 } = {
   title: "AquaLicious Customer Terms and Conditions & Data Privacy Notice",
   version: TERMS_VERSION,
-  effectiveDate: "November 16, 2026 (Revision 5)",
+  effectiveDate: "November 16, 2026 (Revision 6)",
   sections: [
     {
       title: "1. Introduction & Acceptance of Terms",
@@ -85,7 +92,11 @@ export const TERMS_CONTENT: {
     {
       title: "7. Data Protection Officer (DPO) Contact",
       paragraphs: [
-        "For any privacy inquiries, requests to exercise your data subject rights, or feedback regarding these terms, please contact the AquaLicious Data Protection Officer via email at privacy@aqualicious.local or through our station administration desk."
+        `For any privacy inquiries, requests to exercise your data subject rights, or feedback regarding these terms, please contact the AquaLicious Data Protection Officer ${
+          COPY.DPO_CONTACT_EMAIL
+            ? `via email at ${COPY.DPO_CONTACT_EMAIL} or through our station administration desk.`
+            : `through our station administration desk.`
+        }`
       ]
     }
   ]

@@ -2,7 +2,9 @@ import React, { useState } from 'react';
 import { useReports, useInventory, useSales } from '../api/client.js';
 import { useAuth } from '../auth/AuthContext.js';
 import { Link } from 'react-router-dom';
-import { TrendingUp, TrendingDown, Minus, ArrowRight, PhilippinePeso } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, ArrowRight, PhilippinePeso, AlertTriangle } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { resolver } from '../api/multiServerResolver.js';
 import { AdminPageHeader } from '../components/AdminPageHeader.js';
 import { PendingOrdersTile } from '../components/PendingOrdersTile.js';
 import { formatPeso, formatSignedPeso } from '../utils/currency.js';
@@ -36,6 +38,25 @@ export const DashboardPage: React.FC = () => {
   const { data: report, error: reportError } = useReports(queryDays);
   const { data: inventory } = useInventory();
   const { data: salesHistory } = useSales();
+  const { data: systemStatus } = useQuery({
+    queryKey: ['admin-system-status'],
+    queryFn: async () => {
+      return resolver.request<{
+        mail_transport_verified: boolean;
+        mail_transport_status: string;
+        outbox: { pending: number; failed: number; sent: number; oldest_pending_age_seconds: number | null };
+      }>('/api/admin/system-status');
+    },
+    refetchInterval: 30000,
+    retry: 1
+  });
+
+  const isMailTransportFailing = Boolean(
+    systemStatus && (
+      !systemStatus.mail_transport_verified ||
+      (systemStatus.outbox?.oldest_pending_age_seconds !== null && systemStatus.outbox.oldest_pending_age_seconds > 600 && systemStatus.outbox.pending > 0)
+    )
+  );
 
   const todayKpi = report?.today || { revenue: 0, transactions: 0, active_products: 0, low_stock: 0 };
   const trend = report?.trend || { sma: 0, slope: 0, percentage_slope: 0, label: 'Stable' };
@@ -152,6 +173,32 @@ export const DashboardPage: React.FC = () => {
       <div id="page-error" className="text-red-500 text-xs empty:hidden">
         {reportError ? (reportError as any).message : ''}
       </div>
+
+      {/* ADMIN SYSTEM HEALTH ALERT BANNER */}
+      {isMailTransportFailing && (
+        <div
+          role="alert"
+          data-testid="admin-mail-alert-banner"
+          className="p-4 bg-red-600 text-white rounded-2xl shadow-md flex items-start sm:items-center justify-between gap-4 animate-in fade-in duration-200"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <div className="text-sm font-bold tracking-tight">Email Delivery Warning</div>
+              <div className="text-xs text-white/90 mt-0.5">
+                {!systemStatus?.mail_transport_verified
+                  ? `SMTP mail transport is offline or failed verification (${systemStatus?.mail_transport_status || 'NOT_CONNECTED'}). Customer verification emails cannot be delivered.`
+                  : `${systemStatus.outbox.pending} verification email(s) have been pending for over 10 minutes. Delivery may be delayed.`}
+              </div>
+            </div>
+          </div>
+          <div className="text-[11px] font-mono px-2.5 py-1 bg-black/20 rounded-lg shrink-0 font-bold uppercase tracking-wider">
+            {systemStatus?.mail_transport_status || 'ACTION REQUIRED'}
+          </div>
+        </div>
+      )}
 
       {/* STANDARDIZED ADMIN PAGE HEADER WITH PERIOD FILTER BAR */}
       <AdminPageHeader

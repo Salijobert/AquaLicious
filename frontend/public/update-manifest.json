@@ -1,10 +1,10 @@
 {
-  "version": "2.0.7",
-  "bundleUrl": "https://aqualicious.vercel.app/updates/bundle-2.0.7.zip",
-  "checksum": "687ba25bec2f73d03c3207eba1f3f761c3b003f758e17a1428229f8a8b28141f",
+  "version": "2.0.8",
+  "bundleUrl": "https://aqualicious.vercel.app/updates/bundle-2.0.8.zip",
+  "checksum": "96ae601a7faa3faeb134bdbfeaf2e20ee8c4b2db2f5cefbab113327796be34d9",
   "minNativeVersion": 1,
   "mandatory": false,
-  "releaseNotes": "Performance enhancements and bug fixes.",
-  "signature": "73Tws3nuKMe+18X8sa2woK+4ySsEaBZBkZx4weEMHA1AHTAkn/QIU42LkAAZDwQZdnsBweH7UVVeCK8hy+t8rw==",
-  "builtAt": "2026-11-16T07:40:42.307Z"
+  "releaseNotes": "Fix admin sidebar drawer z-index and registration modal pinned error scrolling",
+  "signature": "jsACtapLg3MG727WJtHbDN8npoiqG8Cm4F85dVUdL8IocQqJWW4r2ZKFc3mBSLjlzwyOFphCBIZvQ2t+HlHi5g==",
+  "builtAt": "2026-11-16T12:05:20.528Z"
 }

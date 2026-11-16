@@ -24,17 +24,81 @@ export interface QueuedMail {
   retries?: number;
 }
 
+export function classifyMailerError(err: any): { category: string; safeMessage: string } {
+  const msg = String(err?.message || err || '').toLowerCase();
+  const code = String(err?.code || '').toUpperCase();
+
+  if (code === 'EAUTH' || msg.includes('auth') || msg.includes('credential') || msg.includes('535') || msg.includes('username and password not accepted')) {
+    return { category: 'AUTHENTICATION_ERROR', safeMessage: 'SMTP authentication failed. Verify Gmail App Password.' };
+  }
+  if (code === 'ECONNREFUSED' || code === 'ENOTFOUND' || code === 'ENETUNREACH' || msg.includes('connection refused') || msg.includes('getaddrinfo')) {
+    return { category: 'CONNECTION_ERROR', safeMessage: 'Unable to connect to SMTP server host.' };
+  }
+  if (code === 'ETIMEDOUT' || code === 'ESOCKET' || msg.includes('timeout') || msg.includes('timed out')) {
+    return { category: 'TIMEOUT_ERROR', safeMessage: 'SMTP greeting or connection timed out.' };
+  }
+  if (msg.includes('daily user sending limit') || msg.includes('rate limit') || msg.includes('450') || msg.includes('452') || msg.includes('too many')) {
+    return { category: 'RATE_LIMIT_ERROR', safeMessage: 'SMTP sending limit reached.' };
+  }
+  if (msg.includes('unauthorized domain') || msg.includes('generateemailverificationlink')) {
+    return { category: 'FIREBASE_LINK_ERROR', safeMessage: 'Firebase email verification action link generation failed.' };
+  }
+  if (msg.includes('transport_not_configured')) {
+    return { category: 'TRANSPORT_NOT_CONFIGURED', safeMessage: 'Mail transport is not configured or offline.' };
+  }
+  return { category: 'DISPATCH_ERROR', safeMessage: 'Failed to deliver outbound email.' };
+}
+
+function extractAttemptCount(errorStr: string | null | undefined): number {
+  if (!errorStr) return 0;
+  const match = errorStr.match(/\[Attempt (\d+)\/\d+\]/);
+  return match ? parseInt(match[1], 10) : 0;
+}
+
 export class Mailer {
   private static transporter: Transporter | null = null;
   private static isConfigured = false;
+  private static transportStatus: 'CONNECTED' | 'AUTHENTICATION_FAILED' | 'CONNECTION_FAILED' | 'TIMEOUT' | 'NOT_CONFIGURED' | 'MOCK_DEV' = 'NOT_CONFIGURED';
   private static queue: QueuedMail[] = [];
   private static isProcessing = false;
   private static recentVerificationDispatches = new Map<string, number>();
   private static recentPasswordResetDispatches = new Map<string, number>();
   public static mockSentEmails: QueuedMail[] = []; // In-memory store for automated test assertion
 
-  public static getStatus(): { configured: boolean } {
-    return { configured: this.isConfigured };
+  public static getStatus(): { configured: boolean; status: string } {
+    return {
+      configured: this.isConfigured,
+      status: this.transportStatus
+    };
+  }
+
+  public static async getOutboxStats(): Promise<{
+    pending: number;
+    failed: number;
+    sent: number;
+    oldestPendingAgeSeconds: number | null;
+  }> {
+    const [pending, failed, sent, oldestPending] = await Promise.all([
+      prisma.emailLog.count({ where: { status: 'PENDING' } }),
+      prisma.emailLog.count({ where: { status: 'FAILED' } }),
+      prisma.emailLog.count({ where: { status: 'SENT' } }),
+      prisma.emailLog.findFirst({
+        where: { status: 'PENDING' },
+        orderBy: { sentAt: 'asc' },
+        select: { sentAt: true }
+      })
+    ]);
+
+    const oldestPendingAgeSeconds = oldestPending
+      ? Math.max(0, Math.floor((Date.now() - oldestPending.sentAt.getTime()) / 1000))
+      : null;
+
+    return {
+      pending,
+      failed,
+      sent,
+      oldestPendingAgeSeconds
+    };
   }
 
   private static async hasRecentEmailOfType(
@@ -105,20 +169,32 @@ export class Mailer {
 
         this.transporter.verify((error: Error | null) => {
           if (error) {
-            console.warn('[Mailer] SMTP transport verification warning:', error.message);
+            const { category } = classifyMailerError(error);
             this.isConfigured = false;
+            if (category === 'AUTHENTICATION_ERROR') this.transportStatus = 'AUTHENTICATION_FAILED';
+            else if (category === 'CONNECTION_ERROR') this.transportStatus = 'CONNECTION_FAILED';
+            else if (category === 'TIMEOUT_ERROR') this.transportStatus = 'TIMEOUT';
+            else this.transportStatus = 'CONNECTION_FAILED';
+
+            console.warn('[Mailer] SMTP transport verification warning:', category);
+            console.log(`[Mailer] Transport health: ${this.transportStatus} | Outbox worker: RUNNING (interval: 15s)`);
           } else {
             this.isConfigured = true;
-            console.log(`[Mailer] Nodemailer ready over Gmail SMTP (${config.adminEmail})`);
+            this.transportStatus = 'CONNECTED';
+            console.log(`[Mailer] Transport health: CONNECTED | Outbox worker: RUNNING (interval: 15s)`);
           }
         });
       } catch (err: any) {
-        console.warn('[Mailer] Initialization error:', err.message);
+        const { category } = classifyMailerError(err);
+        this.transportStatus = 'CONNECTION_FAILED';
+        console.warn('[Mailer] Initialization error:', category);
         this.isConfigured = false;
+        console.log(`[Mailer] Transport health: ${this.transportStatus} | Outbox worker: RUNNING (interval: 15s)`);
       }
     } else {
-      console.log('[Mailer] Running in mock/development mail mode. Outbound emails logged to in-memory store.');
+      this.transportStatus = 'MOCK_DEV';
       this.isConfigured = false;
+      console.log(`[Mailer] Transport health: MOCK_DEV | Outbox worker: RUNNING (interval: 15s)`);
     }
 
     // Process any pending outbox rows left from previous runs or restarts
@@ -154,7 +230,25 @@ export class Mailer {
     });
 
     if (existing) {
-      console.log(`[Mailer] Verification email for user #${userId} already in outbox (status: ${existing.status}). Skipping duplicate.`);
+      if (existing.status === 'SENT') {
+        console.log(`[Mailer] Verification email for user #${userId} already sent. Skipping duplicate.`);
+        return;
+      }
+      if (existing.status === 'FAILED') {
+        // Recoverable retry: if previously failed, reset to PENDING so outbox worker can retry
+        console.log(`[Mailer] Verification email for user #${userId} previously failed. Resetting to PENDING.`);
+        await prisma.emailLog.update({
+          where: { id: existing.id },
+          data: {
+            status: 'PENDING',
+            error: null,
+            sentAt: new Date()
+          }
+        });
+        this.processPendingOutbox().catch(() => {});
+        return;
+      }
+      console.log(`[Mailer] Verification email for user #${userId} already in outbox (PENDING). Skipping duplicate.`);
       return;
     }
 
@@ -205,7 +299,7 @@ export class Mailer {
                 html: template.html,
                 text: template.text
               });
-            } else {
+            } else if (config.nodeEnv !== 'production' || process.env.AQ_MOCK_MAIL === 'true') {
               this.mockSentEmails.push({
                 to: log.toEmail,
                 subject: template.subject,
@@ -217,6 +311,8 @@ export class Mailer {
               });
               console.log(`[Mailer Mock/Dev] Outbox Verification Email -> ${log.toEmail}:`);
               console.log(`  Subject: ${template.subject}`);
+            } else {
+              throw new Error('TRANSPORT_NOT_CONFIGURED: Mail transport is not configured or offline');
             }
 
             await prisma.emailLog.update({
@@ -229,14 +325,29 @@ export class Mailer {
             });
           }
         } catch (dispatchErr: any) {
-          console.error(`[Mailer Outbox] Failed to send email #${log.id} to ${log.toEmail}:`, dispatchErr?.message || dispatchErr);
-          await prisma.emailLog.update({
-            where: { id: log.id },
-            data: {
-              status: 'FAILED',
-              error: dispatchErr?.message || 'Unknown dispatch error'
-            }
-          });
+          const { category, safeMessage } = classifyMailerError(dispatchErr);
+          const currentAttempts = extractAttemptCount(log.error) + 1;
+          const maxRetries = 3;
+
+          console.error(`[Mailer Outbox] Delivery attempt ${currentAttempts}/${maxRetries} failed for email #${log.id}: ${category}`);
+
+          if (currentAttempts < maxRetries && category !== 'AUTHENTICATION_ERROR' && category !== 'TRANSPORT_NOT_CONFIGURED') {
+            await prisma.emailLog.update({
+              where: { id: log.id },
+              data: {
+                status: 'PENDING',
+                error: `RETRY_PENDING: [Attempt ${currentAttempts}/${maxRetries}] ${category}: ${safeMessage}`
+              }
+            });
+          } else {
+            await prisma.emailLog.update({
+              where: { id: log.id },
+              data: {
+                status: 'FAILED',
+                error: `FAILED_MAX_RETRIES: [Attempt ${currentAttempts}/${maxRetries}] ${category}: ${safeMessage}`
+              }
+            });
+          }
         }
       }
     } catch (outboxErr: any) {

@@ -3,7 +3,7 @@ import { prisma, config, verifyToken } from '../config/index.js';
 import { authenticate, requireEmailVerified, requireConsent } from '../middleware/auth.js';
 import { Role } from '@prisma/client';
 import { sanitize, apiLimiter } from '../middleware/security.js';
-import { Mailer } from '../services/mailer.js';
+import { Mailer, classifyMailerError } from '../services/mailer.js';
 import admin from 'firebase-admin';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
@@ -146,22 +146,41 @@ router.post('/', async (req: Request, res: Response) => {
   if (action === 'register') {
     // Explicit privilege escalation block
     if ('role' in req.body) {
-      return res.status(403).json({ error: 'Public registration must only provision Customer access' });
+      return res.status(403).json({
+        error: 'Public registration must only provision Customer access',
+        code: 'ROLE_NOT_PERMITTED'
+      });
     }
 
     const parseResult = registerSchema.safeParse(req.body);
     if (!parseResult.success) {
       const issue = parseResult.error.issues[0];
-      return res.status(422).json({ error: issue?.message || 'Invalid registration payload' });
+      return res.status(422).json({
+        error: issue?.message || 'Invalid registration payload',
+        code: 'INVALID_REGISTRATION_DATA'
+      });
     }
 
     const validData = parseResult.data;
+
+    // Grace-period Terms Version Validation (Allowlist check)
+    if (!config.termsVersionAllowlist.includes(validData.termsVersion)) {
+      return res.status(422).json({
+        error: 'The terms were updated. Please refresh the page or update the app and try again.',
+        code: 'TERMS_VERSION_MISMATCH',
+        expectedVersion: config.termsVersion,
+        acceptedVersions: config.termsVersionAllowlist
+      });
+    }
 
     try {
       assertAllowedName(validData.name);
       assertAllowedName(validData.username);
     } catch (filterErr: any) {
-      return res.status(filterErr.status || 422).json({ error: filterErr.message || 'Please choose a different name.' });
+      return res.status(filterErr.status || 422).json({
+        error: filterErr.message || 'Please choose a different name.',
+        code: 'NAME_NOT_ALLOWED'
+      });
     }
 
     const cleanUsername = sanitize(validData.username).trim();
@@ -176,29 +195,56 @@ router.post('/', async (req: Request, res: Response) => {
     });
 
     if (existingEmail) {
-      // Safe retry resumption: if previous registration attempt timed out and user is unverified
-      if (!existingEmail.emailVerified && existingUsername && existingUsername.id === existingEmail.id) {
-        Mailer.enqueueRegistrationVerification(existingEmail.id, existingEmail.email, existingEmail.name).catch((err: any) => {
-          console.error('[Auth] Background retry verification enqueue error:', err?.message || err);
-        });
-        return res.status(200).json({
-          user: {
-            id: existingEmail.id,
-            name: existingEmail.name,
-            username: existingEmail.username,
-            email: existingEmail.email,
-            email_verified: false,
-            role: 'Customer'
-          },
-          token: '',
-          tokenType: 'pending_verification'
+      // If user is already email-verified or username does not match, return conflict
+      if (existingEmail.emailVerified || existingEmail.username.toLowerCase() !== cleanUsername.toLowerCase()) {
+        return res.status(409).json({
+          error: 'This email may already be registered. Try signing in, or reset your password.',
+          code: 'EMAIL_ALREADY_EXISTS'
         });
       }
-      return res.status(409).json({ error: 'An account with this email address already exists', code: 'EMAIL_ALREADY_EXISTS' });
+
+      // Safe retry resumption: if previous registration attempt timed out or was interrupted and user is unverified
+      // Ensure user has valid consent record
+      const consentRecord = await prisma.userConsent.findFirst({
+        where: { userId: existingEmail.id, consent: true }
+      });
+
+      if (!consentRecord) {
+        await prisma.userConsent.create({
+          data: {
+            userId: existingEmail.id,
+            consent: true,
+            termsVersion: sanitize(validData.termsVersion),
+            ipAddress: req.ip || req.socket.remoteAddress || null,
+            userAgent: (req.headers['user-agent'] as string) || null
+          }
+        });
+      }
+
+      // Re-enqueue or reset verification email in durable outbox
+      Mailer.enqueueRegistrationVerification(existingEmail.id, existingEmail.email, existingEmail.name).catch((err: any) => {
+        console.error('[Auth] Background retry verification enqueue error:', err?.message || err);
+      });
+
+      return res.status(200).json({
+        user: {
+          id: existingEmail.id,
+          name: existingEmail.name,
+          username: existingEmail.username,
+          email: existingEmail.email,
+          email_verified: false,
+          role: 'Customer'
+        },
+        token: '',
+        tokenType: 'pending_verification'
+      });
     }
 
     if (existingUsername) {
-      return res.status(409).json({ error: 'Username already in use', code: 'USERNAME_ALREADY_EXISTS' });
+      return res.status(409).json({
+        error: 'That username is already taken. Please choose another one.',
+        code: 'USERNAME_ALREADY_EXISTS'
+      });
     }
 
     // Sync or create user in Google Firebase Auth
@@ -427,23 +473,30 @@ router.post('/forgot-password', apiLimiter, forgotPasswordIpLimiter, async (req:
 router.post('/resend-verification', apiLimiter, resendIpLimiter, async (req: Request, res: Response) => {
   const parseResult = resendVerificationSchema.safeParse(req.body);
   if (!parseResult.success) {
-    return res.status(422).json({ error: 'Valid email is required' });
+    return res.status(422).json({ error: 'Valid email is required', code: 'INVALID_EMAIL' });
   }
 
   const { email } = parseResult.data;
+  const cleanEmail = sanitize(email).trim().toLowerCase();
   const start = Date.now();
 
-  const recentCheck = await Mailer.hasRecentVerificationEmail(email, 60_000);
+  const recentCheck = await Mailer.hasRecentVerificationEmail(cleanEmail, 60_000);
   if (recentCheck.recent) {
     return res.status(429).json({
       error: `Please wait ${recentCheck.retryAfterSeconds} second(s) before requesting another verification email.`,
+      code: 'TOO_MANY_REQUESTS',
       retryAfterSeconds: recentCheck.retryAfterSeconds
     });
   }
 
-  const user = await prisma.user.findFirst({ where: { email } });
+  const user = await prisma.user.findFirst({ where: { email: cleanEmail } });
 
   if (user && !user.emailVerified) {
+    // Re-enqueue in durable outbox (resets FAILED outbox record back to PENDING)
+    await Mailer.enqueueRegistrationVerification(user.id, user.email, user.name).catch((err) => {
+      console.error('[Auth] Outbox verification re-enqueue error:', err?.message || err);
+    });
+
     const verificationLink = await buildFirebaseVerificationLink(user.email, user.name);
     await Mailer.sendVerificationEmail(user.email, user.name, verificationLink, user.id).catch((err) => {
       console.error('[Auth] Resend verification email failure:', err);
@@ -457,14 +510,15 @@ router.post('/resend-verification', apiLimiter, resendIpLimiter, async (req: Req
 
   return res.status(200).json({
     message: 'If an unverified account exists with that email, a verification link has been sent.',
-    sentAt: new Date().toISOString()
+    sentAt: new Date().toISOString(),
+    retryAfterSeconds: 60
   });
 });
 
 router.get('/verification-status', async (req: Request, res: Response) => {
   const email = (req.query.email as string)?.trim().toLowerCase();
   if (!email) {
-    return res.status(422).json({ error: 'Email parameter required' });
+    return res.status(422).json({ error: 'Email parameter required', code: 'INVALID_EMAIL' });
   }
 
   // Verification status is derived strictly from Firebase (read-only; DB sync happens in authenticate middleware)
@@ -483,10 +537,20 @@ router.get('/verification-status', async (req: Request, res: Response) => {
   });
 
   if (!user) {
-    return res.status(404).json({ error: 'User not found' });
+    return res.status(404).json({ error: 'User not found', code: 'USER_NOT_FOUND' });
   }
 
-  return res.json({ verified: firebaseVerified });
+  const latestLog = await prisma.emailLog.findFirst({
+    where: { toEmail: email, type: 'VERIFICATION' },
+    orderBy: { id: 'desc' }
+  });
+
+  return res.json({
+    verified: firebaseVerified,
+    delivery_status: latestLog?.status || 'NOT_FOUND',
+    sent_at: latestLog?.sentAt || null,
+    error_category: latestLog?.error ? classifyMailerError(new Error(latestLog.error)).category : null
+  });
 });
 
 router.get('/', authenticate, async (req: Request, res: Response) => {

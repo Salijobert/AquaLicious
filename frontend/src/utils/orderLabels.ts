@@ -185,9 +185,164 @@ export function formatManilaTimeOnly(dateInput: string | Date): string {
 }
 
 /**
+ * Comprehensive registration error mapper with friendly user messages and support codes.
+ */
+export function getRegistrationErrorMessage(err: any): { message: string; code: string; fullText: string } {
+  const status = err?.status || err?.response?.status;
+  const rawCode = String(err?.code || err?.response?.data?.code || '').trim();
+  const rawMsg = String(err?.message || err?.response?.data?.error || '').trim();
+
+  // 1. Role escalation
+  if (rawCode === 'ROLE_NOT_PERMITTED' || rawMsg.includes('provision Customer access')) {
+    return {
+      message: 'Public registration must only provision Customer access.',
+      code: 'REG-SEC-01',
+      fullText: 'Public registration must only provision Customer access. [REG-SEC-01]'
+    };
+  }
+
+  // 2. Terms Version Mismatch
+  if (rawCode === 'TERMS_VERSION_MISMATCH' || rawMsg.includes('terms were updated') || rawMsg.includes('termsVersion')) {
+    return {
+      message: 'The terms were updated. Please refresh the page or update the app and try again.',
+      code: 'REG-TRM-01',
+      fullText: 'The terms were updated. Please refresh the page or update the app and try again. [REG-TRM-01]'
+    };
+  }
+
+  // 3. Validation: Weak password
+  if (rawCode === 'WEAK_PASSWORD' || rawCode === 'auth/weak-password' || rawMsg.includes('at least 6 characters') || rawMsg.includes('weak-password')) {
+    return {
+      message: 'Password must be at least 6 characters.',
+      code: 'REG-VAL-01',
+      fullText: 'Password must be at least 6 characters. [REG-VAL-01]'
+    };
+  }
+
+  // 4. Validation: Invalid email
+  if (rawCode === 'INVALID_EMAIL' || rawCode === 'auth/invalid-email' || rawMsg.includes('valid email address') || rawMsg.includes('invalid-email')) {
+    return {
+      message: 'A valid email address is required.',
+      code: 'REG-VAL-02',
+      fullText: 'A valid email address is required. [REG-VAL-02]'
+    };
+  }
+
+  // 5. Validation: Prohibited name
+  if (rawCode === 'NAME_NOT_ALLOWED' || rawMsg.includes('choose a different name')) {
+    return {
+      message: 'Please choose a different name.',
+      code: 'REG-VAL-03',
+      fullText: 'Please choose a different name. [REG-VAL-03]'
+    };
+  }
+
+  // 6. Username Taken
+  if (rawCode === 'USERNAME_ALREADY_EXISTS' || rawMsg.includes('Username already in use') || rawMsg.includes('already taken')) {
+    return {
+      message: 'That username is already taken. Please choose another one.',
+      code: 'REG-USR-01',
+      fullText: 'That username is already taken. Please choose another one. [REG-USR-01]'
+    };
+  }
+
+  // 7. Email Already Registered
+  if (rawCode === 'EMAIL_ALREADY_EXISTS' || rawCode === 'auth/email-already-in-use' || rawMsg.includes('email address already exists') || rawMsg.includes('already registered')) {
+    return {
+      message: 'This email may already be registered. Try signing in, or reset your password.',
+      code: 'REG-EML-01',
+      fullText: 'This email may already be registered. Try signing in, or reset your password. [REG-EML-01]'
+    };
+  }
+
+  // 7b. Account Disabled in Authentication Service
+  if (rawCode === 'ACCOUNT_DISABLED' || rawCode === 'auth/user-disabled' || rawMsg.includes('has been disabled')) {
+    return {
+      message: 'This user account has been disabled. Please contact the station.',
+      code: 'REG-DIS-01',
+      fullText: 'This user account has been disabled. Please contact the station. [REG-DIS-01]'
+    };
+  }
+
+  // 8. Rate limit
+  if (status === 429 || rawCode === 'TOO_MANY_REQUESTS' || rawCode === 'auth/too-many-requests' || rawMsg.includes('Too many attempts') || rawMsg.includes('too-many-requests') || rawMsg.includes('Too many registration attempts')) {
+    return {
+      message: 'Too many attempts. Please wait a few minutes and try again.',
+      code: 'REG-RAT-01',
+      fullText: 'Too many attempts. Please wait a few minutes and try again. [REG-RAT-01]'
+    };
+  }
+
+  // 9. Timeout
+  if (
+    status === 504 ||
+    rawCode === 'TIMEOUT' ||
+    rawCode === 'GATEWAY_TIMEOUT' ||
+    rawMsg.includes('took too long') ||
+    rawMsg.includes('timed out') ||
+    rawMsg.includes('TimeoutError')
+  ) {
+    return {
+      message: 'The request took too long to complete. Please try again in a moment.',
+      code: 'REG-NET-02',
+      fullText: 'The request took too long to complete. Please try again in a moment. [REG-NET-02]'
+    };
+  }
+
+  // 10. Server unreachable or HTML response
+  if (
+    rawCode === 'SERVER_UNREACHABLE' ||
+    rawCode === 'INVALID_JSON_RESPONSE' ||
+    status === 502 ||
+    status === 503 ||
+    rawMsg.includes('Failed to fetch') ||
+    rawMsg.includes('NetworkError') ||
+    rawMsg.includes('<!DOCTYPE') ||
+    rawMsg.includes('<!doctype') ||
+    rawMsg.includes('Unexpected token') ||
+    rawMsg.includes('is not valid JSON')
+  ) {
+    return {
+      message: "The server isn't reachable right now. Please try again in a moment.",
+      code: 'REG-NET-01',
+      fullText: "The server isn't reachable right now. Please try again in a moment. [REG-NET-01]"
+    };
+  }
+
+  // 11. Missing consent
+  if (rawCode === 'CONSENT_REQUIRED' || rawMsg.includes('Consent to Terms') || rawMsg.includes('consent is required')) {
+    return {
+      message: 'Consent to Terms and Data Privacy Act is required.',
+      code: 'REG-CON-01',
+      fullText: 'Consent to Terms and Data Privacy Act is required. [REG-CON-01]'
+    };
+  }
+
+  // 12. General Firebase or auth failure
+  if (rawCode.startsWith('auth/') || rawMsg.includes('Firebase') || rawMsg.includes('credential')) {
+    return {
+      message: 'Authentication service is currently unavailable. Please check your connection and try again.',
+      code: 'REG-FB-01',
+      fullText: 'Authentication service is currently unavailable. Please check your connection and try again. [REG-FB-01]'
+    };
+  }
+
+  return {
+    message: rawMsg || 'Unable to complete registration. Please try again in a moment.',
+    code: 'REG-GEN-01',
+    fullText: `${rawMsg || 'Unable to complete registration. Please try again in a moment.'} [REG-GEN-01]`
+  };
+}
+
+/**
  * Maps API and network errors to clear, friendly user messages based on status codes.
  */
 export function getFriendlyErrorMessage(err: any): string {
+  const regErr = getRegistrationErrorMessage(err);
+  if (regErr.code !== 'REG-GEN-01') {
+    return regErr.fullText;
+  }
+
   const status = err?.status || err?.response?.status;
   const code = err?.code || err?.response?.data?.code;
   const message = err?.message || err?.response?.data?.error || '';

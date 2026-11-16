@@ -27,6 +27,8 @@ export const TermsPrivacyModal: React.FC<TermsPrivacyModalProps> = ({
   const [agreed, setAgreed] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
   const acceptBtnRef = useRef<HTMLButtonElement>(null);
+  const errorBannerRef = useRef<HTMLDivElement>(null);
+  const topErrorRef = useRef<HTMLDivElement>(null);
 
   // Reset agreement state on modal open
   useEffect(() => {
@@ -34,6 +36,17 @@ export const TermsPrivacyModal: React.FC<TermsPrivacyModalProps> = ({
       setAgreed(false);
     }
   }, [isOpen]);
+
+  // Ensure error banner is visible and scrolled into view when an error appears
+  useEffect(() => {
+    if (error) {
+      if (topErrorRef.current) {
+        topErrorRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else if (errorBannerRef.current) {
+        errorBannerRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+  }, [error]);
 
   // Handle Escape key and Android hardware back button
   useEffect(() => {
@@ -120,48 +133,66 @@ export const TermsPrivacyModal: React.FC<TermsPrivacyModalProps> = ({
       subtitle={`Philippine Data Privacy Act of 2012 (RA 10173) · Version ${TERMS_VERSION}`}
       bodyClassName="space-y-5 text-xs text-gray-700 leading-relaxed select-text"
       footer={
-        <div className="flex items-center justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isSubmitting}
-            className="btn btn-outline btn-sm font-semibold px-4"
-          >
-            Cancel
-          </button>
-          {error ? (
-            <button
-              type="button"
-              disabled={isSubmitting}
-              onClick={() => (onRetry ? onRetry() : onAccept(TERMS_VERSION))}
-              className="btn btn-primary btn-sm font-bold text-white px-5 shadow-sm flex items-center gap-1.5"
+        <div className="w-full flex flex-col gap-3">
+          {error && (
+            <div
+              ref={errorBannerRef}
+              role="alert"
+              data-testid="terms-modal-error"
+              className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl font-medium flex items-start gap-2.5 animate-in fade-in duration-200 text-left"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
-              Try Again
-            </button>
-          ) : (
-            <button
-              ref={acceptBtnRef}
-              type="button"
-              disabled={!agreed || isSubmitting}
-              onClick={() => onAccept(TERMS_VERSION)}
-              className="btn btn-primary btn-sm font-bold text-white px-5 shadow-sm"
-            >
-              {isSubmitting ? (submittingText || 'Creating your account...') : (submitLabel || 'Accept & Register')}
-            </button>
+              <AlertCircle className="w-4 h-4 shrink-0 text-red-600 mt-0.5" />
+              <div className="flex-1">
+                <div className="font-bold text-red-800">Registration could not be completed</div>
+                <div className="text-[11px] mt-0.5 text-red-700 font-normal leading-normal">{error}</div>
+              </div>
+            </div>
           )}
+          <div className="flex items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSubmitting}
+              className="btn btn-outline btn-sm font-semibold px-4"
+            >
+              Cancel
+            </button>
+            {error ? (
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={() => (onRetry ? onRetry() : onAccept(TERMS_VERSION))}
+                className="btn btn-primary btn-sm font-bold text-white px-5 shadow-sm flex items-center gap-1.5"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Try Again
+              </button>
+            ) : (
+              <button
+                ref={acceptBtnRef}
+                type="button"
+                disabled={!agreed || isSubmitting}
+                onClick={() => onAccept(TERMS_VERSION)}
+                className="btn btn-primary btn-sm font-bold text-white px-5 shadow-sm"
+              >
+                {isSubmitting ? (submittingText || 'Creating your account...') : (submitLabel || 'Accept & Register')}
+              </button>
+            )}
+          </div>
         </div>
       }
     >
       {error && (
         <div
+          ref={topErrorRef}
           role="alert"
-          className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl font-medium flex items-start gap-2.5"
+          data-testid="terms-modal-error-top"
+          className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl font-medium flex items-start gap-2.5 animate-in fade-in duration-200 text-left mb-2"
         >
           <AlertCircle className="w-4 h-4 shrink-0 text-red-600 mt-0.5" />
           <div className="flex-1">
-            <div className="font-bold">Registration could not be completed</div>
-            <div className="text-[11px] mt-0.5">{error}</div>
+            <div className="font-bold text-red-800">Registration could not be completed</div>
+            <div className="text-[11px] mt-0.5 text-red-700 font-normal leading-normal">{error}</div>
           </div>
         </div>
       )}

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../auth/AuthContext.js';
 import { auth } from '../auth/firebase.js';
 import { resolver } from '../api/multiServerResolver.js';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Mail, CheckCircle2, AlertCircle, RefreshCw, LogOut } from 'lucide-react';
 
 function formatManilaClock(date: Date): string {
@@ -16,12 +16,46 @@ function formatManilaClock(date: Date): string {
 export const VerifyEmailPromptPage: React.FC = () => {
   const { user, refreshProfile, logout } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const queryEmail = (searchParams.get('email') || '').trim();
 
   const [cooldown, setCooldown] = useState<number>(0);
   const [isResending, setIsResending] = useState<boolean>(false);
   const [isChecking, setIsChecking] = useState<boolean>(false);
   const [sentAtLabel, setSentAtLabel] = useState<string>(() => formatManilaClock(new Date()));
+  const [deliveryStatus, setDeliveryStatus] = useState<'SENT' | 'PENDING' | 'FAILED' | 'UNKNOWN'>('PENDING');
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  const emailToCheck = user?.email || (user?.username?.includes('@') ? user.username : '') || queryEmail;
+
+  // Poll delivery status on mount and when checking
+  useEffect(() => {
+    if (!emailToCheck) return;
+
+    let active = true;
+    resolver
+      .request<{ verified?: boolean; delivery_status?: string; sent_at?: string }>(
+        `/api/auth/verification-status?email=${encodeURIComponent(emailToCheck)}`
+      )
+      .then((res) => {
+        if (!active) return;
+        if (res?.delivery_status === 'SENT') {
+          setDeliveryStatus('SENT');
+          if (res.sent_at) {
+            setSentAtLabel(formatManilaClock(new Date(res.sent_at)));
+          }
+        } else if (res?.delivery_status === 'FAILED') {
+          setDeliveryStatus('FAILED');
+        } else {
+          setDeliveryStatus('PENDING');
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      active = false;
+    };
+  }, [user?.email, user?.username]);
 
   // Tick 60-second countdown cooldown
   useEffect(() => {
@@ -37,7 +71,7 @@ export const VerifyEmailPromptPage: React.FC = () => {
     setIsResending(true);
     setMessage(null);
 
-    const emailToSend = user?.email || (user?.username?.includes('@') ? user.username : '');
+    const emailToSend = emailToCheck;
     if (!emailToSend) {
       setMessage({ text: 'Unable to identify account email for resending.', type: 'error' });
       setIsResending(false);
@@ -118,7 +152,7 @@ export const VerifyEmailPromptPage: React.FC = () => {
     navigate('/login', { replace: true });
   };
 
-  const displayEmail = user?.email || user?.username || 'your registered email';
+  const displayEmail = emailToCheck || 'your registered email';
 
   return (
     <div
@@ -140,15 +174,35 @@ export const VerifyEmailPromptPage: React.FC = () => {
           </p>
         </div>
 
-        <p className="text-xs text-gray-600 text-center mb-4 leading-relaxed">
-          We've sent a verification link from <strong className="text-slate-800">aqualiciousadmin@gmail.com</strong> to:
-          <br />
-          <span className="font-bold text-[#1565c0] text-sm break-all">{displayEmail}</span>
-          <br />
-          <span className="inline-block mt-1.5 text-[11px] text-slate-500 font-medium">
-            Sent at {sentAtLabel} • Use only the newest link if you resent
-          </span>
-        </p>
+        {deliveryStatus === 'FAILED' ? (
+          <div className="p-3.5 mb-4 rounded-xl text-xs flex items-start gap-2.5 bg-amber-50 text-amber-900 border border-amber-200 text-left">
+            <AlertCircle className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
+            <div className="flex-1">
+              <div className="font-bold text-amber-800">We couldn't send the email yet.</div>
+              <div className="text-[11px] mt-0.5 text-amber-700">Please tap <strong>Resend Verification Email</strong> below to try sending it again.</div>
+            </div>
+          </div>
+        ) : deliveryStatus === 'PENDING' ? (
+          <p className="text-xs text-gray-600 text-center mb-4 leading-relaxed">
+            We're preparing your verification email to:
+            <br />
+            <span className="font-bold text-[#1565c0] text-sm break-all">{displayEmail}</span>
+            <br />
+            <span className="inline-block mt-1.5 text-[11px] text-slate-500 font-medium">
+              If it doesn't arrive shortly, tap Resend below.
+            </span>
+          </p>
+        ) : (
+          <p className="text-xs text-gray-600 text-center mb-4 leading-relaxed">
+            We've sent a verification link from <strong className="text-slate-800">aqualiciousadmin@gmail.com</strong> to:
+            <br />
+            <span className="font-bold text-[#1565c0] text-sm break-all">{displayEmail}</span>
+            <br />
+            <span className="inline-block mt-1.5 text-[11px] text-slate-500 font-medium">
+              Sent at {sentAtLabel} • Use only the newest link if you resent
+            </span>
+          </p>
+        )}
 
         <div className="bg-blue-50/70 border border-blue-200/60 rounded-xl p-3.5 mb-5 text-[11px] text-blue-900 leading-normal">
           <p className="font-semibold mb-1">Mobile App & Browser Instructions:</p>

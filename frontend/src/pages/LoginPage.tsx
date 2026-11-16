@@ -40,6 +40,17 @@ export const LoginPage: React.FC = () => {
   const [regModalError, setRegModalError] = useState<string | null>(null);
   const [isTermsOpen, setIsTermsOpen] = useState(false);
   const isSubmittingRegRef = useRef(false);
+  const formErrorRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll error banner into view at the top of the window whenever an error occurs
+  useEffect(() => {
+    if (error) {
+      formErrorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (typeof window !== 'undefined' && window.scrollY > 80) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+  }, [error]);
 
   // Password refs for programmatically hiding passwords on mode change
   const loginPwRef = useRef<PasswordInputHandle>(null);
@@ -240,6 +251,7 @@ export const LoginPage: React.FC = () => {
     } catch (err: any) {
       const friendlyMsg = getFriendlyErrorMessage(err);
       setRegModalError(friendlyMsg);
+      setError(friendlyMsg);
       setRegState('error');
     } finally {
       setIsLoading(false);
@@ -435,8 +447,9 @@ export const LoginPage: React.FC = () => {
               {/* Form Error Banner */}
               {error && (
                 <div
+                  ref={formErrorRef}
                   role="alert"
-                  className="bg-[#fff3f3] text-[#c62828] border border-[#ffcdd2] rounded-xl p-3 text-xs mb-4 flex items-center gap-2"
+                  className="bg-[#fff3f3] text-[#c62828] border border-[#ffcdd2] rounded-xl p-3 text-xs mb-4 flex items-center gap-2 animate-in fade-in duration-200"
                 >
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>{error}</span>
@@ -525,8 +538,9 @@ export const LoginPage: React.FC = () => {
                 >
                   <form id="auth-form" onSubmit={handleRegisterFormSubmit} className="space-y-3">
                     <div>
-                      <label className="block text-xs font-bold text-[#455a64] mb-1">Full Name *</label>
+                      <label htmlFor="reg-name" className="block text-xs font-bold text-[#455a64] mb-1">Full Name *</label>
                       <input
+                        id="reg-name"
                         type="text"
                         name="name"
                         required
@@ -539,8 +553,9 @@ export const LoginPage: React.FC = () => {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-bold text-[#455a64] mb-1">Username *</label>
+                      <label htmlFor="reg-username" className="block text-xs font-bold text-[#455a64] mb-1">Username *</label>
                       <input
+                        id="reg-username"
                         type="text"
                         name="username"
                         required
@@ -553,8 +568,9 @@ export const LoginPage: React.FC = () => {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-bold text-[#455a64] mb-1">Email Address *</label>
+                      <label htmlFor="reg-email" className="block text-xs font-bold text-[#455a64] mb-1">Email Address *</label>
                       <input
+                        id="reg-email"
                         type="email"
                         name="email"
                         required
@@ -628,6 +644,9 @@ export const LoginPage: React.FC = () => {
         onClose={() => {
           if (regState !== 'submitting') {
             setIsTermsOpen(false);
+            if (regModalError) {
+              setError(regModalError);
+            }
             setRegState('idle');
           }
         }}

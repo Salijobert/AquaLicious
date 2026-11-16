@@ -105,7 +105,7 @@ const missingEmail = await req('/api/auth', {
   username: 'noemail-' + randomUUID().substring(0, 8),
   password,
   consent: true,
-  termsVersion: '2026-10-27.2'
+  termsVersion: '2026-11-16.4'
 }, 'POST');
 ok(missingEmail.code === 422, 'Registration without email rejected (422)');
 
@@ -117,7 +117,7 @@ const invalidEmail = await req('/api/auth', {
   email: 'not-an-email-at-all',
   password,
   consent: true,
-  termsVersion: '2026-10-27.2'
+  termsVersion: '2026-11-16.4'
 }, 'POST');
 ok(invalidEmail.code === 422, 'Registration with invalid email rejected (422)');
 
@@ -133,7 +133,7 @@ const noConsent = await req('/api/auth', {
   email: rawEmail,
   password,
   consent: false,
-  termsVersion: '2026-10-27.2'
+  termsVersion: '2026-11-16.4'
 }, 'POST');
 ok(noConsent.code === 422, 'Registration with consent=false rejected (422)');
 
@@ -145,7 +145,7 @@ const validReg = await req('/api/auth', {
   email: rawEmail,
   password,
   consent: true,
-  termsVersion: '2026-10-27.2'
+  termsVersion: '2026-11-16.4'
 }, 'POST');
 ok(validReg.code === 200 && validReg.data.user.email === normalizedEmail, 'Registration trims & lowercases email');
 const customerToken = validReg.data.token;
@@ -159,7 +159,7 @@ const duplicateEmail = await req('/api/auth', {
   email: normalizedEmail,
   password,
   consent: true,
-  termsVersion: '2026-10-27.2'
+  termsVersion: '2026-11-16.4'
 }, 'POST');
 ok(
   duplicateEmail.code === 409 && duplicateEmail.data.code === 'EMAIL_ALREADY_EXISTS',
