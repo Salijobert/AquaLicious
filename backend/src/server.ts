@@ -6,6 +6,7 @@ import { config, prisma } from './config/index.js';
 import { Mailer } from './services/mailer.js';
 import { AccountCleanupService } from './services/accountCleanupService.js';
 import { UnpaidOrderCleanupService } from './services/unpaidOrderCleanupService.js';
+import { FirebaseSyncService } from './services/firebaseSyncService.js';
 import { securityHeaders, corsHandler, apiLimiter } from './middleware/security.js';
 
 import authRoutes from './routes/authRoutes.js';
@@ -186,9 +187,10 @@ if (isMain) {
     console.log(`Cluster ID: ${config.clusterId}`);
     console.log(`Timezone: ${config.timezone}`);
 
-    // Start scheduled unverified account cleanup & unpaid order auto-cancel (PM2 cluster worker 0 guard)
+    // Start scheduled unverified account cleanup, unpaid order auto-cancel & automatic Firebase user sync
     AccountCleanupService.startSchedule();
     UnpaidOrderCleanupService.startSchedule();
+    FirebaseSyncService.startSchedule();
 
     // Notify PM2 that process is ready to handle connections
     if (process.send) {
